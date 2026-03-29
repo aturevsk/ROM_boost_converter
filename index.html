@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ROM Boost Converter - File Explorer</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/matlab.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;height:100vh;background:#f5f5f5}
+#sidebar{width:320px;min-width:320px;background:#1e1e2e;color:#cdd6f4;overflow-y:auto;padding:12px;border-right:2px solid #313244}
+#sidebar h2{font-size:14px;color:#89b4fa;margin-bottom:8px;padding:4px 0;border-bottom:1px solid #313244}
+#sidebar input{width:100%;padding:6px 10px;margin-bottom:10px;background:#313244;border:1px solid #45475a;color:#cdd6f4;border-radius:4px;font-size:12px}
+.folder{margin-left:0}
+.folder>summary{cursor:pointer;padding:3px 6px;font-size:12px;color:#89dceb;font-weight:600;border-radius:3px;list-style:none}
+.folder>summary:hover{background:#313244}
+.folder>summary::before{content:'+ ';color:#f9e2af}
+.folder[open]>summary::before{content:'- '}
+.file{padding:3px 6px 3px 20px;font-size:12px;cursor:pointer;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file:hover{background:#313244}
+.file.active{background:#45475a;color:#f9e2af}
+.file .size{color:#6c7086;font-size:10px;float:right}
+#content{flex:1;overflow-y:auto;padding:20px;background:#fff}
+#content h1{font-size:18px;color:#1e1e2e;margin-bottom:4px}
+#content .desc{color:#666;font-size:13px;margin-bottom:16px}
+#content img{max-width:100%;border:1px solid #ddd;border-radius:4px}
+#content pre{background:#f8f8f8;padding:16px;border-radius:6px;overflow-x:auto;font-size:12px;line-height:1.5}
+.meta{background:#f0f7ff;border:1px solid #89b4fa;border-radius:6px;padding:16px;margin-bottom:16px}
+.meta h3{color:#1e40af;margin-bottom:8px}
+.meta p{font-size:13px;color:#333;line-height:1.6}
+#welcome{text-align:center;padding:60px 20px}
+#welcome h1{font-size:28px;color:#1e1e2e;margin-bottom:12px}
+#welcome p{color:#666;font-size:15px;max-width:500px;margin:0 auto 20px}
+.badge{display:inline-block;background:#89b4fa;color:#1e1e2e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin:2px}
+</style>
+</head>
+<body>
+<div id="sidebar">
+<h2>ROM Boost Converter</h2>
+<input type="text" id="search" placeholder="Filter files...">
+<div id="tree"></div>
+</div>
+<div id="content">
+<div id="welcome">
+<h1>ROM Boost Converter</h1>
+<p>Reduced-order models for a Simscape boost converter achieving 47x simulation speedup.</p>
+<p><span class="badge">PyTorch</span> <span class="badge">MATLAB</span> <span class="badge">Simulink</span> <span class="badge">Neural ODE</span></p>
+<p style="margin-top:20px;font-size:13px;color:#999">Click a file in the sidebar to view it</p>
+</div>
+</div>
+<script>
+const FILES=[
+{p:"README.md",t:"md",s:"4.2 KB",d:"Project overview, quick start, and repository structure"},
+{p:"startup.m",t:"m",s:"0.4 KB",d:"MATLAB path setup script - run first"},
+{p:"requirements.txt",t:"txt",s:"0.1 KB",d:"Python dependencies (PyTorch, torchdiffeq, etc.)"},
+{p:"pytorch_neural_ode/train_neural_ode_pytorch.py",t:"py",s:"30 KB",d:"Main Neural ODE training with 3-phase curriculum, custom loss (Jacobian + ripple), normalization"},
+{p:"pytorch_neural_ode/train_extended.py",t:"py",s:"11 KB",d:"Extended 8-hour fine-tuning with 15-min checkpoints and plateau detection"},
+{p:"pytorch_neural_ode/export_neuralode_weights.py",t:"py",s:"4.5 KB",d:"Export trained model to JSON + MAT + TorchScript for MATLAB/Simulink"},
+{p:"matlab_neural_ss/train_neural_ss_normalized.m",t:"m",s:"9.2 KB",d:"Continuous-time NSS with output-scaled last layer initialization"},
+{p:"matlab_neural_ss/train_nss_fixed.m",t:"m",s:"16 KB",d:"Discrete-time NSS fix attempt: skip connection, 3-phase curriculum, L2 reg"},
+{p:"simulink_models/boost_converter_test_harness.slx",t:"slx",s:"67 KB",d:"Simscape open-loop boost converter reference model"},
+{p:"simulink_models/boost_openloop_branch_c_layers.slx",t:"slx",s:"55 KB",d:"PyTorch Neural ODE ROM deployed via Simulink layer blocks (47x faster)"},
+{p:"simulink_models/boost_openloop_branch_c_predict.slx",t:"slx",s:"48 KB",d:"PyTorch Neural ODE ROM deployed via Deep Learning Predict block (38x faster)"},
+{p:"simulink_models/boost_openloop_nss.slx",t:"slx",s:"42 KB",d:"MATLAB Neural State Space ROM via native NSS block (120x faster)"},
+{p:"simulink_models/setup_comparison_profile.m",t:"m",s:"5.8 KB",d:"Configures all 3 models with identical staircase duty profile for SDI comparison"},
+{p:"build/build_branch_c_rom.m",t:"m",s:"14 KB",d:"Imports PyTorch model to dlnetwork, builds both Simulink ROM models"},
+{p:"build/extract_ripple_from_simscape.m",t:"m",s:"7.6 KB",d:"Topology-agnostic ripple extraction: measures delta_iL vs duty from Simscape"},
+{p:"data/neural_ode/jacobian_targets.json",t:"json",s:"1.6 KB",d:"A-matrices at 12 operating points for Jacobian matching loss"},
+{p:"data/neural_ode/profile_01.csv",t:"csv",s:"1.2 MB",d:"Training profile 1: [duty, Vout, iL, SimID] at 5us sampling"},
+{p:"data/boost_nss_training_data.mat",t:"mat",s:"11 MB",d:"18 training profiles in MATLAB iddata format for nlssest"},
+{p:"model_data/extended_best.pt",t:"pt",s:"48 KB",d:"Best PyTorch checkpoint: val loss=0.040, 2500 epochs, 7.7 hours training"},
+{p:"model_data/neuralode_norm_stats.json",t:"json",s:"0.2 KB",d:"Normalization: u_mean/std, x_mean/std, dxdt_scale=[671, 5886]"},
+{p:"model_data/neuralode_weights.mat",t:"mat",s:"38 KB",d:"MLP weights (W1,b1,W2,b2,W3,b3) + normalization for Simulink"},
+{p:"model_data/neuralode_dlnetwork.mat",t:"mat",s:"54 KB",d:"MATLAB dlnetwork object imported from PyTorch TorchScript"},
+{p:"model_data/boost_branch_c_data.mat",t:"mat",s:"1.0 KB",d:"Simulink ROM data: normalization constants + ripple lookup tables"},
+{p:"model_data/boost_nss_normalized.mat",t:"mat",s:"82 KB",d:"Best MATLAB NSS model: val loss=0.137 (continuous-time, output-scaled)"},
+{p:"model_data/comparison_duty_profile.mat",t:"mat",s:"1.6 KB",d:"Staircase duty profile timeseries for 3-model comparison"},
+{p:"model_data/ripple_empirical_data.mat",t:"mat",s:"0.5 KB",d:"Empirical ripple amplitude vs duty cycle (13 points)"},
+{p:"results/neuralode_pytorch_validation.png",t:"png",s:"308 KB",d:"PyTorch Neural ODE validation: 3 profiles, Vout + iL"},
+{p:"results/ablation_loss_study.png",t:"png",s:"85 KB",d:"Ablation study: 4 loss variants show normalization is the key"},
+{p:"results/nss_normalized_validation.png",t:"png",s:"86 KB",d:"MATLAB NSS validation: 3 profiles, Vout + iL"},
+{p:"results/branch_c_openloop_result.png",t:"png",s:"45 KB",d:"Open-loop ROM vs Simscape comparison"},
+{p:"results/lstm_validation_final.png",t:"png",s:"52 KB",d:"Branch A LSTM-NARX validation results"},
+{p:"results/frest_bode_comparison.png",t:"png",s:"72 KB",d:"Branch B frequency response estimation Bode plots"},
+{p:"results/branch_b_lpv_openloop_validation.png",t:"png",s:"160 KB",d:"Branch B LPV model open-loop validation"},
+{p:"results/ripple_empirical_extraction.png",t:"png",s:"38 KB",d:"Empirical ripple extraction results from Simscape"},
+{p:"report/ROM_Boost_Converter_Report.pdf",t:"pdf",s:"~200 KB",d:"Comprehensive PDF report covering all branches and findings"},
+];
+
+function buildTree(){
+  const tree=document.getElementById('tree');
+  const filter=document.getElementById('search').value.toLowerCase();
+  tree.innerHTML='';
+  const folders={};
+  FILES.filter(f=>!filter||f.p.toLowerCase().includes(filter)||f.d.toLowerCase().includes(filter)).forEach(f=>{
+    const parts=f.p.split('/');
+    const folder=parts.length>1?parts.slice(0,-1).join('/'):'.';
+    if(!folders[folder])folders[folder]=[];
+    folders[folder].push(f);
+  });
+  Object.keys(folders).sort().forEach(folder=>{
+    const det=document.createElement('details');
+    det.className='folder';
+    det.open=true;
+    const sum=document.createElement('summary');
+    sum.textContent=folder==='.'?'(root)':folder.split('/').pop();
+    det.appendChild(sum);
+    folders[folder].forEach(f=>{
+      const div=document.createElement('div');
+      div.className='file';
+      const name=f.p.split('/').pop();
+      div.innerHTML=`${name}<span class="size">${f.s}</span>`;
+      div.onclick=()=>showFile(f);
+      div.dataset.path=f.p;
+      det.appendChild(div);
+    });
+    tree.appendChild(det);
+  });
+}
+
+async function showFile(f){
+  document.querySelectorAll('.file').forEach(e=>e.classList.remove('active'));
+  document.querySelector(`.file[data-path="${f.p}"]`)?.classList.add('active');
+  const content=document.getElementById('content');
+  const name=f.p.split('/').pop();
+
+  if(f.t==='png'){
+    content.innerHTML=`<h1>${name}</h1><div class="desc">${f.d}</div><img src="${f.p}" alt="${name}">`;
+  } else if(f.t==='py'||f.t==='m'||f.t==='txt'||f.t==='md'){
+    try{
+      const resp=await fetch(f.p);
+      const text=await resp.text();
+      const lang=f.t==='py'?'python':f.t==='m'?'matlab':'plaintext';
+      const highlighted=hljs.highlight(text,{language:lang}).value;
+      content.innerHTML=`<h1>${name}</h1><div class="desc">${f.d}</div><pre><code class="hljs">${highlighted}</code></pre>`;
+    }catch(e){
+      content.innerHTML=`<h1>${name}</h1><div class="desc">${f.d}</div><div class="meta"><h3>Text File</h3><p>Size: ${f.s}<br>Cannot load file content in this context.</p></div>`;
+    }
+  } else if(f.t==='json'){
+    try{
+      const resp=await fetch(f.p);
+      const json=await resp.json();
+      content.innerHTML=`<h1>${name}</h1><div class="desc">${f.d}</div><pre><code class="hljs">${JSON.stringify(json,null,2)}</code></pre>`;
+    }catch(e){
+      content.innerHTML=`<h1>${name}</h1><div class="desc">${f.d}</div><div class="meta"><h3>JSON File</h3><p>Size: ${f.s}</p></div>`;
+    }
+  } else if(f.t==='csv'){
+    content.innerHTML=`<h1>${name}</h1><div class="desc">${f.d}</div><div class="meta"><h3>CSV Training Data</h3><p>Size: ${f.s}<br>Columns: [duty, Vout, iL, SimID]<br>Sample rate: 5 us<br>Open in MATLAB or Python to view full data.</p></div>`;
+  } else {
+    const icons={slx:'Simulink Model',mat:'MATLAB Data',pt:'PyTorch Checkpoint',pdf:'PDF Document'};
+    content.innerHTML=`<h1>${name}</h1><div class="desc">${f.d}</div><div class="meta"><h3>${icons[f.t]||'Binary File'}</h3><p>Size: ${f.s}<br>Type: .${f.t}<br>${f.t==='slx'?'Open in MATLAB/Simulink to simulate.':f.t==='mat'?'Load in MATLAB with load() command.':f.t==='pt'?'Load in PyTorch with torch.load().':f.t==='pdf'?'Open with any PDF reader.':'Binary file.'}</p></div>`;
+  }
+}
+
+document.getElementById('search').addEventListener('input',buildTree);
+buildTree();
+</script>
+</body>
+</html>
