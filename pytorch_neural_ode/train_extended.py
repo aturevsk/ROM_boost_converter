@@ -48,12 +48,13 @@ WINDOW_MS = 20
 WIN_PER_PROF = 3
 
 BASE_DIR = Path(__file__).parent
-MODEL_DIR = BASE_DIR / 'models'
-CHECKPOINT_DIR = MODEL_DIR / 'checkpoints_pytorch'
+REPO_ROOT = BASE_DIR.parent
+MODEL_DIR = REPO_ROOT / 'model_data'
+CHECKPOINT_DIR = BASE_DIR / 'checkpoints'
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
-DATA_DIR = BASE_DIR / 'data'
+DATA_DIR = REPO_ROOT / 'data'
 
-LOG_FILE = MODEL_DIR / 'training_log_extended.txt'
+LOG_FILE = BASE_DIR / 'training_log_extended.txt'
 
 
 def log(msg):

@@ -19,10 +19,13 @@
 %   3. Press Simulate on each model
 %   4. Open Simulation Data Inspector to compare
 
-addpath(genpath(fileparts(fileparts(mfilename('fullpath')))));
+thisDir = fileparts(mfilename('fullpath'));
+repoRoot = fileparts(thisDir);
+run(fullfile(repoRoot, 'startup.m'));
 
 Ts = 5e-6;
-modelsDir = fullfile(fileparts(mfilename('fullpath')), 'models');
+modelsDir = fullfile(repoRoot, 'model_data');
+simulinkDir = thisDir;  % Simulink models are in this directory
 
 %% 1. Build duty cycle profile
 fprintf('=== Building comparison duty profile ===\n');
@@ -119,7 +122,7 @@ fprintf('\n  ROM IC: Vout=%.2fV, iL=%.2fA (for D=%.2f)\n', Vout_init, iL_init, D
 %% 3. Configure Simscape model
 fprintf('\n=== Configuring Simscape model ===\n');
 simscapeModel = 'boost_converter_test_harness';
-simscapeFile = fullfile(modelsDir, [simscapeModel '.slx']);
+simscapeFile = fullfile(simulinkDir, [simscapeModel '.slx']);
 
 if bdIsLoaded(simscapeModel), close_system(simscapeModel, 0); end
 load_system(simscapeFile);
@@ -147,12 +150,12 @@ fprintf('  %s configured: StopTime=%.3fs, Vin=5V, Rload=6ohm\n', simscapeModel, 
 %% 4. Configure ROM Predict model
 fprintf('\n=== Configuring ROM Predict model ===\n');
 romPredict = 'boost_openloop_branch_c_predict';
-configureROMModel(romPredict, modelsDir, stopTime);
+configureROMModel(romPredict, simulinkDir, stopTime);
 
 %% 5. Configure ROM Layers model
 fprintf('\n=== Configuring ROM Layers model ===\n');
 romLayers = 'boost_openloop_branch_c_layers';
-configureROMModel(romLayers, modelsDir, stopTime);
+configureROMModel(romLayers, simulinkDir, stopTime);
 
 %% 6. Open all three models
 fprintf('\n=== Opening models for interactive simulation ===\n');

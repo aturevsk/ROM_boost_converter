@@ -42,8 +42,9 @@ Ts = 5e-6;
 nx = 2;
 
 baseDir = fileparts(mfilename('fullpath'));
-testsDir = fileparts(baseDir);
-modelsDir = fullfile(testsDir, 'models');
+repoRoot = fileparts(baseDir);
+dataDir = fullfile(repoRoot, 'data');
+modelDataDir = fullfile(repoRoot, 'model_data');
 checkpointDir = fullfile(baseDir, 'checkpoints');
 if ~exist(checkpointDir, 'dir'), mkdir(checkpointDir); end
 
@@ -59,7 +60,7 @@ logMsg(logFile, '============================================================');
 
 %% 1. Load training data (same as PyTorch)
 logMsg(logFile, 'Loading training data...');
-load(fullfile(modelsDir, 'boost_nss_training_data.mat'), 'allU', 'allY');
+load(fullfile(dataDir, 'boost_nss_training_data.mat'), 'allU', 'allY');
 
 nTotal = numel(allU);
 nVal = 3;
@@ -362,7 +363,7 @@ else
     nssEst = nss; %#ok<NASGU>
 end
 save(fullfile(checkpointDir, 'nss_fixed_final.mat'), 'nssEst', 'normStats');
-save(fullfile(modelsDir, 'boost_nss_fixed.mat'), 'nssEst', 'normStats');
+save(fullfile(modelDataDir, 'boost_nss_fixed.mat'), 'nssEst', 'normStats');
 
 % Final validation
 logMsg(logFile, 'Final validation...');

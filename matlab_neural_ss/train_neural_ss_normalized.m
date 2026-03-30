@@ -14,14 +14,17 @@ function train_neural_ss_normalized(mode)
 if nargin < 1, mode = 'full'; end
 isTest = strcmp(mode, 'test');
 
-addpath(genpath(pwd));
-modelsDir = fullfile(pwd, 'models');
-checkpointDir = fullfile(modelsDir, 'checkpoints_nss');
+baseDir = fileparts(mfilename('fullpath'));
+repoRoot = fileparts(baseDir);
+run(fullfile(repoRoot, 'startup.m'));
+dataDir = fullfile(repoRoot, 'data');
+modelDataDir = fullfile(repoRoot, 'model_data');
+checkpointDir = fullfile(baseDir, 'checkpoints_nss');
 if ~exist(checkpointDir, 'dir'), mkdir(checkpointDir); end
 
 %% 1. Load training data (same as PyTorch)
 fprintf('=== Loading training data ===\n');
-load(fullfile(modelsDir, 'boost_nss_training_data.mat'), 'allU', 'allY');
+load(fullfile(dataDir, 'boost_nss_training_data.mat'), 'allU', 'allY');
 fprintf('Loaded %d profiles\n', numel(allU));
 
 Ts = 5e-6;
@@ -249,11 +252,11 @@ for v = 1:min(3, numel(valData))
 end
 
 sgtitle('Neural State-Space (CT, output-scaled init)');
-saveas(fig, fullfile(modelsDir, 'nss_normalized_validation.png'));
+saveas(fig, fullfile(modelDataDir, 'nss_normalized_validation.png'));
 close(fig);
 
 %% 7. Save final model
-save(fullfile(modelsDir, 'boost_nss_normalized.mat'), 'nssEst', 'normStats');
+save(fullfile(modelDataDir, 'boost_nss_normalized.mat'), 'nssEst', 'normStats');
 fprintf('\nModel saved to boost_nss_normalized.mat\n');
 fprintf('Done.\n');
 end

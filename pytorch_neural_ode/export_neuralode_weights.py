@@ -4,8 +4,10 @@ import torch
 import numpy as np
 from pathlib import Path
 
-MODEL_DIR = Path(__file__).parent / 'models'
-CHECKPOINT_DIR = MODEL_DIR / 'checkpoints_pytorch'
+BASE_DIR = Path(__file__).parent
+REPO_ROOT = BASE_DIR.parent
+MODEL_DIR = REPO_ROOT / 'model_data'
+CHECKPOINT_DIR = BASE_DIR / 'checkpoints'
 
 
 def export_weights(checkpoint_path=None):

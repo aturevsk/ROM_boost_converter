@@ -14,12 +14,15 @@
 %   [Normalize(x,u)] -> [MLP] -> [Scale by dxdt_scale] -> [Euler] -> x_state
 %                          ^                                             |
 %                          └──── state feedback (Unit Delay) ────────────┘
-addpath(genpath(fileparts(fileparts(mfilename('fullpath')))));
+buildDir = fileparts(mfilename('fullpath'));
+repoRoot = fileparts(buildDir);
+run(fullfile(repoRoot, 'startup.m'));
 
 Ts = 5e-6;
 nx = 2;
 H = 64;
-modelsDir = fullfile(fileparts(mfilename('fullpath')), 'models');
+modelsDir = fullfile(repoRoot, 'model_data');
+simulinkDir = fullfile(repoRoot, 'simulink_models');
 
 %% 1. Import PyTorch model
 fprintf('=== Branch C ROM (Neural ODE) ===\n');
@@ -374,7 +377,7 @@ function buildOpenLoopModel(modelName, modelsDir, Ts, nx, romDataFile, ...
 
     % Save
     Simulink.BlockDiagram.arrangeSystem(modelName);
-    modelPath = fullfile(modelsDir, [modelName '.slx']);
+    modelPath = fullfile(simulinkDir, [modelName '.slx']);
     save_system(modelName, modelPath);
     fprintf('  Saved: %s\n', modelPath);
 end

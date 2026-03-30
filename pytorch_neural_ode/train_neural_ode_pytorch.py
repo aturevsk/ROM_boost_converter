@@ -42,9 +42,10 @@ STEP_SKIP = 10  # consistent skip for training AND validation
 DEVICE = 'cpu'  # CPU faster than MPS for tiny model
 
 BASE_DIR = Path(__file__).parent
-DATA_DIR = BASE_DIR / 'data'
-MODEL_DIR = BASE_DIR / 'models'
-CHECKPOINT_DIR = MODEL_DIR / 'checkpoints_pytorch'
+REPO_ROOT = BASE_DIR.parent
+DATA_DIR = REPO_ROOT / 'data'
+MODEL_DIR = REPO_ROOT / 'model_data'
+CHECKPOINT_DIR = BASE_DIR / 'checkpoints'
 CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
 
 # ============================================================

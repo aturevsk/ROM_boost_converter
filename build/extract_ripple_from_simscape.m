@@ -11,15 +11,18 @@
 %   ripple_Tsw          - detected switching period (scalar)
 %   ripple_is_triangular - true if shape is well-approximated by triangle
 %   ripple_phase_grid   - phase breakpoints for shape (nPtsPerCycle x 1)
-addpath(genpath(fileparts(fileparts(mfilename('fullpath')))));
+buildDir = fileparts(mfilename('fullpath'));
+repoRoot = fileparts(buildDir);
+run(fullfile(repoRoot, 'startup.m'));
 
-modelsDir = fullfile(fileparts(mfilename('fullpath')), 'models');
+modelsDir = fullfile(repoRoot, 'model_data');
+simulinkDir = fullfile(repoRoot, 'simulink_models');
 simscapeModel = 'scdboostconverter_openloop';
 nPtsPerCycle = 20;  % resample ripple shape to this many points
 
 %% 1. Load model and detect switching frequency
 fprintf('=== Empirical Ripple Extraction ===\n');
-load_system(fullfile(modelsDir, [simscapeModel '.slx']));
+load_system(fullfile(simulinkDir, [simscapeModel '.slx']));
 
 fprintf('\nDetecting switching frequency...\n');
 f_sw = detectSwitchingFrequency(simscapeModel);
