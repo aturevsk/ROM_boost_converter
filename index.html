@@ -249,7 +249,11 @@ async function showFile(f){
   } else if(f.t==='csv'){
     content.innerHTML=`<h1>${icon} ${name}</h1><div class="desc">${f.d}</div><div class="meta"><h3>Training Data (CSV)</h3><p><span class="tag">CSV</span> Size: ${f.s}<br><br>Columns: <code>[duty, Vout, iL, SimID]</code><br>Sample rate: 5 \u00B5s (200 kHz)<br>18 profiles total covering duty range 0.125 - 0.75<br><br>Load in Python: <code>np.loadtxt('${f.p}', delimiter=',')</code><br>Load in MATLAB: <code>readmatrix('${name}')</code></p></div>`;
   } else {
-    const types={slx:['Simulink Model','Open in MATLAB/Simulink. Run setup_comparison_profile.m first to configure the duty profile.'],mat:['MATLAB Data','Load in MATLAB: <code>load(\''+name+'\')</code>'],pt:['PyTorch Checkpoint','Load in Python: <code>torch.load(\''+name+'\', weights_only=False)</code>'],pdf:['PDF Report','17-page comprehensive report covering all ROM approaches, key insights, and findings.']};
+    if(f.t==='pdf'){
+      content.innerHTML=`<h1>${icon} ${name}</h1><div class="desc">${f.d}</div><iframe src="${f.p}" style="width:100%;height:calc(100vh - 120px);border:1px solid #ddd;border-radius:6px"></iframe>`;
+      return;
+    }
+    const types={slx:['Simulink Model','Open in MATLAB/Simulink. Run setup_comparison_profile.m first to configure the duty profile.'],mat:['MATLAB Data','Load in MATLAB: <code>load(\''+name+'\')</code>'],pt:['PyTorch Checkpoint','Load in Python: <code>torch.load(\''+name+'\', weights_only=False)</code>']};
     const [label,detail]=types[f.t]||['Binary File',''];
     content.innerHTML=`<h1>${icon} ${name}</h1><div class="desc">${f.d}</div><div class="meta"><h3>${label}</h3><p><span class="tag">.${f.t}</span> Size: ${f.s}<br><br>${detail}</p></div>`;
   }
