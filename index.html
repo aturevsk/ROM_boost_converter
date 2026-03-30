@@ -9,93 +9,189 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/matlab.min.js"></script>
 <style>
+/* MathWorks brand colors:
+   Primary Orange: #E0600F
+   MATLAB Blue: #0072BD
+   MATLAB Orange: #D95319
+   MATLAB Yellow: #EDB120
+   MATLAB Purple: #7E2F8E
+   MATLAB Green: #77AC30
+   MATLAB Cyan: #4DBEEE
+   Dark: #1A1A1A
+   Gray: #C1C1C1
+*/
+:root {
+  --mw-orange: #E0600F;
+  --mw-blue: #0072BD;
+  --mw-dark-blue: #005A9C;
+  --mw-yellow: #EDB120;
+  --mw-purple: #7E2F8E;
+  --mw-green: #77AC30;
+  --mw-cyan: #4DBEEE;
+  --mw-dark: #1A1A1A;
+  --mw-gray: #C1C1C1;
+  --mw-light-gray: #F0F0F0;
+  --sidebar-bg: #1A1A1A;
+  --sidebar-hover: #2A2A2A;
+  --sidebar-active: #3A3A3A;
+  --sidebar-text: #E8E8E8;
+  --sidebar-muted: #888;
+}
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;height:100vh;background:#f5f5f5}
-#sidebar{width:320px;min-width:320px;background:#1e1e2e;color:#cdd6f4;overflow-y:auto;padding:12px;border-right:2px solid #313244}
-#sidebar h2{font-size:14px;color:#89b4fa;margin-bottom:8px;padding:4px 0;border-bottom:1px solid #313244}
-#sidebar input{width:100%;padding:6px 10px;margin-bottom:10px;background:#313244;border:1px solid #45475a;color:#cdd6f4;border-radius:4px;font-size:12px}
-.folder{margin-left:0}
-.folder>summary{cursor:pointer;padding:3px 6px;font-size:12px;color:#89dceb;font-weight:600;border-radius:3px;list-style:none}
-.folder>summary:hover{background:#313244}
-.folder>summary::before{content:'+ ';color:#f9e2af}
-.folder[open]>summary::before{content:'- '}
-.file{padding:3px 6px 3px 20px;font-size:12px;cursor:pointer;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.file:hover{background:#313244}
-.file.active{background:#45475a;color:#f9e2af}
-.file .size{color:#6c7086;font-size:10px;float:right}
-#content{flex:1;overflow-y:auto;padding:20px;background:#fff}
-#content h1{font-size:18px;color:#1e1e2e;margin-bottom:4px}
-#content .desc{color:#666;font-size:13px;margin-bottom:16px}
-#content img{max-width:100%;border:1px solid #ddd;border-radius:4px}
-#content pre{background:#f8f8f8;padding:16px;border-radius:6px;overflow-x:auto;font-size:12px;line-height:1.5}
-.meta{background:#f0f7ff;border:1px solid #89b4fa;border-radius:6px;padding:16px;margin-bottom:16px}
-.meta h3{color:#1e40af;margin-bottom:8px}
-.meta p{font-size:13px;color:#333;line-height:1.6}
-#welcome{text-align:center;padding:60px 20px}
-#welcome h1{font-size:28px;color:#1e1e2e;margin-bottom:12px}
-#welcome p{color:#666;font-size:15px;max-width:500px;margin:0 auto 20px}
-.badge{display:inline-block;background:#89b4fa;color:#1e1e2e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;margin:2px}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;display:flex;height:100vh;background:var(--mw-light-gray)}
+
+/* Sidebar */
+#sidebar{width:330px;min-width:330px;background:var(--sidebar-bg);color:var(--sidebar-text);overflow-y:auto;display:flex;flex-direction:column}
+#sidebar-header{padding:16px;border-bottom:2px solid var(--mw-orange);background:linear-gradient(180deg, #222 0%, var(--sidebar-bg) 100%)}
+#sidebar-header h2{font-size:15px;color:#fff;margin-bottom:2px;letter-spacing:0.5px}
+#sidebar-header .subtitle{font-size:11px;color:var(--mw-orange);font-weight:600}
+#sidebar-header input{width:100%;padding:7px 10px;margin-top:10px;background:#2A2A2A;border:1px solid #444;color:#fff;border-radius:4px;font-size:12px;outline:none}
+#sidebar-header input:focus{border-color:var(--mw-blue)}
+#sidebar-header input::placeholder{color:#666}
+#tree-container{flex:1;overflow-y:auto;padding:8px 12px}
+
+.folder{margin-left:0;margin-bottom:2px}
+.folder>summary{cursor:pointer;padding:4px 8px;font-size:12px;color:var(--mw-cyan);font-weight:600;border-radius:3px;list-style:none;user-select:none}
+.folder>summary:hover{background:var(--sidebar-hover)}
+.folder>summary::before{content:'\25B6 ';font-size:8px;color:var(--mw-orange);margin-right:4px;display:inline-block;transition:transform 0.15s}
+.folder[open]>summary::before{transform:rotate(90deg)}
+
+.file{padding:4px 8px 4px 24px;font-size:12px;cursor:pointer;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background 0.1s}
+.file:hover{background:var(--sidebar-hover)}
+.file.active{background:var(--mw-blue);color:#fff}
+.file .size{color:var(--sidebar-muted);font-size:10px;float:right}
+.file.active .size{color:rgba(255,255,255,0.7)}
+.file .icon{margin-right:4px;font-size:10px}
+.icon-py{color:#EDB120}
+.icon-m{color:#E0600F}
+.icon-slx{color:#4DBEEE}
+.icon-mat{color:#77AC30}
+.icon-json{color:#C1C1C1}
+.icon-csv{color:#77AC30}
+.icon-pt{color:#D95319}
+.icon-png{color:#7E2F8E}
+.icon-pdf{color:#D95319}
+.icon-txt{color:#888}
+.icon-md{color:#888}
+
+/* Stats bar */
+#stats{padding:8px 16px;background:#111;border-top:1px solid #333;font-size:11px;color:var(--sidebar-muted)}
+
+/* Content */
+#content{flex:1;overflow-y:auto;padding:24px 32px;background:#fff}
+#content h1{font-size:20px;color:var(--mw-dark);margin-bottom:4px;font-weight:700}
+#content .desc{color:#666;font-size:13px;margin-bottom:16px;line-height:1.5}
+#content img{max-width:100%;border:1px solid #ddd;border-radius:6px;box-shadow:0 2px 8px rgba(0,0,0,0.08)}
+#content pre{background:#fafafa;padding:16px;border-radius:6px;overflow-x:auto;font-size:12px;line-height:1.6;border:1px solid #e0e0e0}
+#content pre code{font-family:'SF Mono',Monaco,Consolas,monospace}
+
+.meta{background:linear-gradient(135deg, #f0f7ff 0%, #fff5eb 100%);border:1px solid var(--mw-blue);border-left:4px solid var(--mw-blue);border-radius:6px;padding:16px 20px;margin-bottom:16px}
+.meta h3{color:var(--mw-dark-blue);margin-bottom:8px;font-size:14px}
+.meta p{font-size:13px;color:#333;line-height:1.7}
+.meta .tag{display:inline-block;background:var(--mw-blue);color:#fff;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:600;margin-right:4px}
+
+/* Welcome page */
+#welcome{text-align:center;padding:80px 20px}
+#welcome h1{font-size:32px;color:var(--mw-dark);margin-bottom:8px;font-weight:800}
+#welcome .tagline{color:#666;font-size:16px;max-width:550px;margin:0 auto 24px;line-height:1.5}
+.badge-row{margin-bottom:24px}
+.badge{display:inline-block;padding:4px 12px;border-radius:12px;font-size:11px;font-weight:700;margin:3px;letter-spacing:0.3px}
+.badge-pytorch{background:#EDB120;color:#1A1A1A}
+.badge-matlab{background:#E0600F;color:#fff}
+.badge-simulink{background:#0072BD;color:#fff}
+.badge-neuralode{background:#7E2F8E;color:#fff}
+.results-table{max-width:600px;margin:0 auto 24px;text-align:left;border-collapse:collapse}
+.results-table th{background:var(--mw-blue);color:#fff;padding:8px 12px;font-size:12px;font-weight:600}
+.results-table td{padding:6px 12px;font-size:12px;border-bottom:1px solid #e0e0e0}
+.results-table tr:hover{background:#f5f9ff}
+.results-table .speedup{font-weight:700;color:var(--mw-orange)}
+#welcome .hint{color:#999;font-size:13px;margin-top:20px}
+#welcome .hint span{color:var(--mw-blue)}
 </style>
 </head>
 <body>
 <div id="sidebar">
+<div id="sidebar-header">
 <h2>ROM Boost Converter</h2>
-<input type="text" id="search" placeholder="Filter files...">
+<div class="subtitle">Neural ODE &amp; Neural State-Space ROMs</div>
+<input type="text" id="search" placeholder="Search files...">
+</div>
+<div id="tree-container">
 <div id="tree"></div>
+</div>
+<div id="stats"></div>
 </div>
 <div id="content">
 <div id="welcome">
 <h1>ROM Boost Converter</h1>
-<p>Reduced-order models for a Simscape boost converter achieving 47x simulation speedup.</p>
-<p><span class="badge">PyTorch</span> <span class="badge">MATLAB</span> <span class="badge">Simulink</span> <span class="badge">Neural ODE</span></p>
-<p style="margin-top:20px;font-size:13px;color:#999">Click a file in the sidebar to view it</p>
+<p class="tagline">Reduced-order models for a Simscape switching boost converter using PyTorch Neural ODE and MATLAB Neural State-Space approaches.</p>
+<div class="badge-row">
+<span class="badge badge-pytorch">PyTorch</span>
+<span class="badge badge-matlab">MATLAB</span>
+<span class="badge badge-simulink">Simulink</span>
+<span class="badge badge-neuralode">Neural ODE</span>
+</div>
+<table class="results-table">
+<tr><th>Model</th><th>Vout RMSE</th><th>Sim Time</th><th>Speedup</th></tr>
+<tr><td>Simscape (reference)</td><td>--</td><td>258 s</td><td>1x</td></tr>
+<tr><td>PyTorch Neural ODE</td><td>0.047 V</td><td>5.5 s</td><td class="speedup">47x</td></tr>
+<tr><td>MATLAB Neural State-Space</td><td>0.20 V</td><td>2.2 s</td><td class="speedup">120x</td></tr>
+</table>
+<p class="hint">Click a file in the sidebar to view it, or start typing to <span>search</span></p>
 </div>
 </div>
 <script>
 const FILES=[
-{p:"README.md",t:"md",s:"4.2 KB",d:"Project overview, quick start, and repository structure"},
-{p:"startup.m",t:"m",s:"0.4 KB",d:"MATLAB path setup script - run first"},
-{p:"requirements.txt",t:"txt",s:"0.1 KB",d:"Python dependencies (PyTorch, torchdiffeq, etc.)"},
-{p:"pytorch_neural_ode/train_neural_ode_pytorch.py",t:"py",s:"30 KB",d:"Main Neural ODE training with 3-phase curriculum, custom loss (Jacobian + ripple), normalization"},
-{p:"pytorch_neural_ode/train_extended.py",t:"py",s:"11 KB",d:"Extended 8-hour fine-tuning with 15-min checkpoints and plateau detection"},
-{p:"pytorch_neural_ode/export_neuralode_weights.py",t:"py",s:"4.5 KB",d:"Export trained model to JSON + MAT + TorchScript for MATLAB/Simulink"},
-{p:"matlab_neural_ss/train_neural_ss_normalized.m",t:"m",s:"9.2 KB",d:"Continuous-time NSS with output-scaled last layer initialization"},
-{p:"matlab_neural_ss/train_nss_fixed.m",t:"m",s:"16 KB",d:"Discrete-time NSS fix attempt: skip connection, 3-phase curriculum, L2 reg"},
-{p:"simulink_models/boost_converter_test_harness.slx",t:"slx",s:"67 KB",d:"Simscape open-loop boost converter reference model"},
-{p:"simulink_models/boost_openloop_branch_c_layers.slx",t:"slx",s:"55 KB",d:"PyTorch Neural ODE ROM deployed via Simulink layer blocks (47x faster)"},
+{p:"README.md",t:"md",s:"4.2 KB",d:"Project overview, quick start guide, and repository structure"},
+{p:"startup.m",t:"m",s:"0.4 KB",d:"MATLAB path setup script - run this first before using any MATLAB scripts"},
+{p:"requirements.txt",t:"txt",s:"0.1 KB",d:"Python dependencies: PyTorch, torchdiffeq, numpy, scipy, h5py, matplotlib"},
+{p:"pytorch_neural_ode/train_neural_ode_pytorch.py",t:"py",s:"30 KB",d:"Main Neural ODE training: 3-phase curriculum, custom loss (Jacobian + ripple), dxdt_scale normalization"},
+{p:"pytorch_neural_ode/train_extended.py",t:"py",s:"11 KB",d:"Extended 8-hour fine-tuning with 15-min checkpoints, plateau detection, and ReduceLROnPlateau"},
+{p:"pytorch_neural_ode/export_neuralode_weights.py",t:"py",s:"4.5 KB",d:"Export trained model to JSON + MAT + TorchScript for MATLAB/Simulink integration"},
+{p:"matlab_neural_ss/train_neural_ss_normalized.m",t:"m",s:"9.2 KB",d:"Continuous-time NSS with output-scaled last layer initialization (best CT result: val=0.137)"},
+{p:"matlab_neural_ss/train_nss_fixed.m",t:"m",s:"16 KB",d:"Discrete-time NSS fix attempt: skip connection, 3-phase curriculum, L2 regularization"},
+{p:"simulink_models/boost_converter_test_harness.slx",t:"slx",s:"67 KB",d:"Simscape open-loop boost converter - the reference model for accuracy comparison"},
+{p:"simulink_models/boost_openloop_branch_c_layers.slx",t:"slx",s:"55 KB",d:"PyTorch Neural ODE ROM deployed via Simulink layer blocks (47x faster than Simscape)"},
 {p:"simulink_models/boost_openloop_branch_c_predict.slx",t:"slx",s:"48 KB",d:"PyTorch Neural ODE ROM deployed via Deep Learning Predict block (38x faster)"},
-{p:"simulink_models/boost_openloop_nss.slx",t:"slx",s:"42 KB",d:"MATLAB Neural State Space ROM via native NSS block (120x faster)"},
-{p:"simulink_models/setup_comparison_profile.m",t:"m",s:"5.8 KB",d:"Configures all 3 models with identical staircase duty profile for SDI comparison"},
-{p:"build/build_branch_c_rom.m",t:"m",s:"14 KB",d:"Imports PyTorch model to dlnetwork, builds both Simulink ROM models"},
-{p:"build/extract_ripple_from_simscape.m",t:"m",s:"7.6 KB",d:"Topology-agnostic ripple extraction: measures delta_iL vs duty from Simscape"},
-{p:"data/neural_ode/jacobian_targets.json",t:"json",s:"1.6 KB",d:"A-matrices at 12 operating points for Jacobian matching loss"},
-{p:"data/neural_ode/profile_01.csv",t:"csv",s:"1.2 MB",d:"Training profile 1: [duty, Vout, iL, SimID] at 5us sampling"},
-{p:"data/boost_nss_training_data.mat",t:"mat",s:"11 MB",d:"18 training profiles in MATLAB iddata format for nlssest"},
-{p:"model_data/extended_best.pt",t:"pt",s:"48 KB",d:"Best PyTorch checkpoint: val loss=0.040, 2500 epochs, 7.7 hours training"},
-{p:"model_data/neuralode_norm_stats.json",t:"json",s:"0.2 KB",d:"Normalization: u_mean/std, x_mean/std, dxdt_scale=[671, 5886]"},
-{p:"model_data/neuralode_weights.mat",t:"mat",s:"38 KB",d:"MLP weights (W1,b1,W2,b2,W3,b3) + normalization for Simulink"},
-{p:"model_data/neuralode_dlnetwork.mat",t:"mat",s:"54 KB",d:"MATLAB dlnetwork object imported from PyTorch TorchScript"},
-{p:"model_data/boost_branch_c_data.mat",t:"mat",s:"1.0 KB",d:"Simulink ROM data: normalization constants + ripple lookup tables"},
-{p:"model_data/boost_nss_normalized.mat",t:"mat",s:"82 KB",d:"Best MATLAB NSS model: val loss=0.137 (continuous-time, output-scaled)"},
-{p:"model_data/comparison_duty_profile.mat",t:"mat",s:"1.6 KB",d:"Staircase duty profile timeseries for 3-model comparison"},
-{p:"model_data/ripple_empirical_data.mat",t:"mat",s:"0.5 KB",d:"Empirical ripple amplitude vs duty cycle (13 points)"},
-{p:"results/neuralode_pytorch_validation.png",t:"png",s:"308 KB",d:"PyTorch Neural ODE validation: 3 profiles, Vout + iL"},
-{p:"results/ablation_loss_study.png",t:"png",s:"85 KB",d:"Ablation study: 4 loss variants show normalization is the key"},
-{p:"results/nss_normalized_validation.png",t:"png",s:"86 KB",d:"MATLAB NSS validation: 3 profiles, Vout + iL"},
-{p:"results/branch_c_openloop_result.png",t:"png",s:"45 KB",d:"Open-loop ROM vs Simscape comparison"},
-{p:"results/lstm_validation_final.png",t:"png",s:"52 KB",d:"Branch A LSTM-NARX validation results"},
-{p:"results/frest_bode_comparison.png",t:"png",s:"72 KB",d:"Branch B frequency response estimation Bode plots"},
-{p:"results/branch_b_lpv_openloop_validation.png",t:"png",s:"160 KB",d:"Branch B LPV model open-loop validation"},
-{p:"results/ripple_empirical_extraction.png",t:"png",s:"38 KB",d:"Empirical ripple extraction results from Simscape"},
-{p:"report/ROM_Boost_Converter_Report.pdf",t:"pdf",s:"~200 KB",d:"Comprehensive PDF report covering all branches and findings"},
+{p:"simulink_models/boost_openloop_nss.slx",t:"slx",s:"42 KB",d:"MATLAB Neural State Space ROM via native NSS Simulink block (120x faster)"},
+{p:"simulink_models/setup_comparison_profile.m",t:"m",s:"5.8 KB",d:"Configures all 3 models with identical staircase duty profile (D=0.20-0.70) for SDI comparison"},
+{p:"build/build_branch_c_rom.m",t:"m",s:"14 KB",d:"Imports PyTorch TorchScript model to MATLAB dlnetwork, builds both Simulink ROM models"},
+{p:"build/extract_ripple_from_simscape.m",t:"m",s:"7.6 KB",d:"Topology-agnostic empirical ripple extraction: measures delta_iL vs duty from Simscape simulation"},
+{p:"data/neural_ode/jacobian_targets.json",t:"json",s:"1.6 KB",d:"A-matrices at 12 operating points (from Branch B tfest) for Jacobian matching loss"},
+{p:"data/neural_ode/profile_01.csv",t:"csv",s:"1.2 MB",d:"Training profile 1: columns [duty, Vout, iL, SimID] at 5us sampling rate"},
+{p:"data/boost_nss_training_data.mat",t:"mat",s:"11 MB",d:"All 18 training profiles in MATLAB iddata format for nlssest training"},
+{p:"model_data/extended_best.pt",t:"pt",s:"48 KB",d:"Best PyTorch checkpoint: val loss=0.040, 2500 epochs, 7.7 hours of extended training"},
+{p:"model_data/neuralode_norm_stats.json",t:"json",s:"0.2 KB",d:"Normalization statistics: u_mean/std, x_mean/std, dxdt_scale=[671, 5886]"},
+{p:"model_data/neuralode_weights.mat",t:"mat",s:"38 KB",d:"MLP weights (W1,b1,W2,b2,W3,b3) + normalization constants for Simulink deployment"},
+{p:"model_data/neuralode_dlnetwork.mat",t:"mat",s:"54 KB",d:"MATLAB dlnetwork object imported from PyTorch via importNetworkFromPyTorch"},
+{p:"model_data/boost_branch_c_data.mat",t:"mat",s:"1.0 KB",d:"Simulink ROM workspace data: normalization constants, state ICs, ripple lookup tables"},
+{p:"model_data/boost_nss_normalized.mat",t:"mat",s:"82 KB",d:"Best MATLAB NSS model: val loss=0.137 (continuous-time with output-scaled initialization)"},
+{p:"model_data/nss_fixed_best.mat",t:"mat",s:"82 KB",d:"Best discrete-time NSS model from fix attempt (val loss=0.339)"},
+{p:"model_data/comparison_duty_profile.mat",t:"mat",s:"1.6 KB",d:"Staircase duty profile timeseries (D=0.20 to 0.70, 10% steps + big transients)"},
+{p:"model_data/ripple_empirical_data.mat",t:"mat",s:"0.5 KB",d:"Empirical iL ripple amplitude vs duty cycle (13 operating points from Simscape)"},
+{p:"results/neuralode_pytorch_validation.png",t:"png",s:"308 KB",d:"PyTorch Neural ODE final validation: 3 profiles showing Vout and iL tracking"},
+{p:"results/neuralode_training_history.png",t:"png",s:"45 KB",d:"Training loss history across all phases and extended training"},
+{p:"results/ablation_loss_study.png",t:"png",s:"85 KB",d:"Ablation study: 4 loss variants prove normalization matters more than custom loss"},
+{p:"results/nss_normalized_validation.png",t:"png",s:"86 KB",d:"MATLAB NSS validation: shows oscillations captured but with larger errors than PyTorch"},
+{p:"results/nss_extended_validation.png",t:"png",s:"88 KB",d:"NSS after extended training: marginal improvement over initial result"},
+{p:"results/branch_c_openloop_result.png",t:"png",s:"45 KB",d:"Open-loop comparison: Simscape vs PyTorch ROM vs NSS ROM with staircase duty profile"},
+{p:"results/branch_c_openloop_with_ripple.png",t:"png",s:"52 KB",d:"Open-loop result with iL ripple reconstruction added to Neural ODE ROM"},
+{p:"results/lstm_validation_final.png",t:"png",s:"52 KB",d:"Branch A: LSTM-NARX Vout prediction showing autoregressive tracking"},
+{p:"results/frest_bode_comparison.png",t:"png",s:"72 KB",d:"Branch B: Frequency response estimation Bode plots at multiple duty cycles"},
+{p:"results/branch_b_lpv_openloop_validation.png",t:"png",s:"160 KB",d:"Branch B: LPV model open-loop validation showing linear model limitations"},
+{p:"results/ripple_empirical_extraction.png",t:"png",s:"38 KB",d:"Empirical iL ripple extraction: measured delta_iL vs duty from Simscape"},
+{p:"report/ROM_Boost_Converter_Report.pdf",t:"pdf",s:"~200 KB",d:"Comprehensive 17-page report covering all branches, key insights, tricks, and findings"},
 ];
+
+const ICONS={py:'\u{1F40D}',m:'\u{1F4D0}',slx:'\u{1F4E6}',mat:'\u{1F4BE}',json:'\u{1F4CB}',csv:'\u{1F4CA}',pt:'\u{1F525}',png:'\u{1F5BC}',pdf:'\u{1F4D5}',txt:'\u{1F4C4}',md:'\u{1F4DD}'};
 
 function buildTree(){
   const tree=document.getElementById('tree');
   const filter=document.getElementById('search').value.toLowerCase();
   tree.innerHTML='';
   const folders={};
-  FILES.filter(f=>!filter||f.p.toLowerCase().includes(filter)||f.d.toLowerCase().includes(filter)).forEach(f=>{
+  const filtered=FILES.filter(f=>!filter||f.p.toLowerCase().includes(filter)||f.d.toLowerCase().includes(filter));
+  filtered.forEach(f=>{
     const parts=f.p.split('/');
     const folder=parts.length>1?parts.slice(0,-1).join('/'):'.';
     if(!folders[folder])folders[folder]=[];
@@ -106,19 +202,21 @@ function buildTree(){
     det.className='folder';
     det.open=true;
     const sum=document.createElement('summary');
-    sum.textContent=folder==='.'?'(root)':folder.split('/').pop();
+    sum.textContent=folder==='.'?'Root':folder;
     det.appendChild(sum);
     folders[folder].forEach(f=>{
       const div=document.createElement('div');
       div.className='file';
       const name=f.p.split('/').pop();
-      div.innerHTML=`${name}<span class="size">${f.s}</span>`;
+      const icon=ICONS[f.t]||'\u{1F4C4}';
+      div.innerHTML=`<span class="icon icon-${f.t}">${icon}</span>${name}<span class="size">${f.s}</span>`;
       div.onclick=()=>showFile(f);
       div.dataset.path=f.p;
       det.appendChild(div);
     });
     tree.appendChild(det);
   });
+  document.getElementById('stats').textContent=`${filtered.length} files shown / ${FILES.length} total`;
 }
 
 async function showFile(f){
@@ -126,32 +224,34 @@ async function showFile(f){
   document.querySelector(`.file[data-path="${f.p}"]`)?.classList.add('active');
   const content=document.getElementById('content');
   const name=f.p.split('/').pop();
+  const icon=ICONS[f.t]||'\u{1F4C4}';
 
   if(f.t==='png'){
-    content.innerHTML=`<h1>${name}</h1><div class="desc">${f.d}</div><img src="${f.p}" alt="${name}">`;
-  } else if(f.t==='py'||f.t==='m'||f.t==='txt'||f.t==='md'){
+    content.innerHTML=`<h1>${icon} ${name}</h1><div class="desc">${f.d}</div><img src="${f.p}" alt="${name}">`;
+  } else if(['py','m','txt','md'].includes(f.t)){
     try{
       const resp=await fetch(f.p);
       const text=await resp.text();
       const lang=f.t==='py'?'python':f.t==='m'?'matlab':'plaintext';
       const highlighted=hljs.highlight(text,{language:lang}).value;
-      content.innerHTML=`<h1>${name}</h1><div class="desc">${f.d}</div><pre><code class="hljs">${highlighted}</code></pre>`;
+      content.innerHTML=`<h1>${icon} ${name}</h1><div class="desc">${f.d}</div><pre><code class="hljs">${highlighted}</code></pre>`;
     }catch(e){
-      content.innerHTML=`<h1>${name}</h1><div class="desc">${f.d}</div><div class="meta"><h3>Text File</h3><p>Size: ${f.s}<br>Cannot load file content in this context.</p></div>`;
+      content.innerHTML=`<h1>${icon} ${name}</h1><div class="desc">${f.d}</div><div class="meta"><h3>Source File</h3><p>Size: ${f.s}<br>Clone the repo to view file contents locally.</p></div>`;
     }
   } else if(f.t==='json'){
     try{
       const resp=await fetch(f.p);
       const json=await resp.json();
-      content.innerHTML=`<h1>${name}</h1><div class="desc">${f.d}</div><pre><code class="hljs">${JSON.stringify(json,null,2)}</code></pre>`;
+      content.innerHTML=`<h1>${icon} ${name}</h1><div class="desc">${f.d}</div><pre><code class="hljs">${JSON.stringify(json,null,2)}</code></pre>`;
     }catch(e){
-      content.innerHTML=`<h1>${name}</h1><div class="desc">${f.d}</div><div class="meta"><h3>JSON File</h3><p>Size: ${f.s}</p></div>`;
+      content.innerHTML=`<h1>${icon} ${name}</h1><div class="desc">${f.d}</div><div class="meta"><h3>JSON Data</h3><p>Size: ${f.s}</p></div>`;
     }
   } else if(f.t==='csv'){
-    content.innerHTML=`<h1>${name}</h1><div class="desc">${f.d}</div><div class="meta"><h3>CSV Training Data</h3><p>Size: ${f.s}<br>Columns: [duty, Vout, iL, SimID]<br>Sample rate: 5 us<br>Open in MATLAB or Python to view full data.</p></div>`;
+    content.innerHTML=`<h1>${icon} ${name}</h1><div class="desc">${f.d}</div><div class="meta"><h3>Training Data (CSV)</h3><p><span class="tag">CSV</span> Size: ${f.s}<br><br>Columns: <code>[duty, Vout, iL, SimID]</code><br>Sample rate: 5 \u00B5s (200 kHz)<br>18 profiles total covering duty range 0.125 - 0.75<br><br>Load in Python: <code>np.loadtxt('${f.p}', delimiter=',')</code><br>Load in MATLAB: <code>readmatrix('${name}')</code></p></div>`;
   } else {
-    const icons={slx:'Simulink Model',mat:'MATLAB Data',pt:'PyTorch Checkpoint',pdf:'PDF Document'};
-    content.innerHTML=`<h1>${name}</h1><div class="desc">${f.d}</div><div class="meta"><h3>${icons[f.t]||'Binary File'}</h3><p>Size: ${f.s}<br>Type: .${f.t}<br>${f.t==='slx'?'Open in MATLAB/Simulink to simulate.':f.t==='mat'?'Load in MATLAB with load() command.':f.t==='pt'?'Load in PyTorch with torch.load().':f.t==='pdf'?'Open with any PDF reader.':'Binary file.'}</p></div>`;
+    const types={slx:['Simulink Model','Open in MATLAB/Simulink. Run setup_comparison_profile.m first to configure the duty profile.'],mat:['MATLAB Data','Load in MATLAB: <code>load(\''+name+'\')</code>'],pt:['PyTorch Checkpoint','Load in Python: <code>torch.load(\''+name+'\', weights_only=False)</code>'],pdf:['PDF Report','17-page comprehensive report covering all ROM approaches, key insights, and findings.']};
+    const [label,detail]=types[f.t]||['Binary File',''];
+    content.innerHTML=`<h1>${icon} ${name}</h1><div class="desc">${f.d}</div><div class="meta"><h3>${label}</h3><p><span class="tag">.${f.t}</span> Size: ${f.s}<br><br>${detail}</p></div>`;
   }
 }
 
