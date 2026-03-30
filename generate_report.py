@@ -10,18 +10,34 @@ RESULTS = REPO / 'results'
 class Report(FPDF):
     def header(self):
         if self.page_no() > 1:
-            self.set_font('Helvetica', 'I', 8)
-            self.cell(0, 5, 'ROM Boost Converter Report', align='C')
-            self.ln(8)
+            self.set_font('Helvetica', '', 8)
+            self.set_text_color(100, 100, 100)
+            self.cell(0, 5, 'ROM Boost Converter  |  Technical Report', align='R')
+            self.ln(1)
+            # Orange accent line
+            self.set_draw_color(224, 96, 15)
+            self.set_line_width(0.6)
+            self.line(self.l_margin, self.get_y() + 2, self.w - self.r_margin, self.get_y() + 2)
+            self.set_line_width(0.2)
+            self.set_text_color(0, 0, 0)
+            self.ln(6)
 
     def footer(self):
         self.set_y(-15)
-        self.set_font('Helvetica', 'I', 8)
-        self.cell(0, 10, f'Page {self.page_no()}/{{nb}}', align='C')
+        # Orange line above footer
+        self.set_draw_color(224, 96, 15)
+        self.set_line_width(0.4)
+        self.line(self.l_margin, self.get_y(), self.w - self.r_margin, self.get_y())
+        self.set_line_width(0.2)
+        self.ln(2)
+        self.set_font('Helvetica', '', 8)
+        self.set_text_color(100, 100, 100)
+        self.cell(0, 8, f'Page {self.page_no()}/{{nb}}', align='C')
+        self.set_text_color(0, 0, 0)
 
     def chapter_title(self, title):
         self.set_font('Helvetica', 'B', 16)
-        self.set_fill_color(41, 128, 185)
+        self.set_fill_color(0, 43, 92)
         self.set_text_color(255, 255, 255)
         self.cell(0, 12, f'  {title}', fill=True, new_x='LMARGIN', new_y='NEXT')
         self.set_text_color(0, 0, 0)
@@ -29,10 +45,16 @@ class Report(FPDF):
 
     def section_title(self, title):
         self.set_font('Helvetica', 'B', 13)
-        self.set_text_color(41, 128, 185)
+        self.set_text_color(0, 43, 92)
         self.cell(0, 8, title, new_x='LMARGIN', new_y='NEXT')
+        # Orange underline
+        self.set_draw_color(224, 96, 15)
+        self.set_line_width(0.5)
+        y = self.get_y()
+        self.line(self.l_margin, y, self.l_margin + 50, y)
+        self.set_line_width(0.2)
         self.set_text_color(0, 0, 0)
-        self.ln(2)
+        self.ln(3)
 
     def subsection_title(self, title):
         self.set_font('Helvetica', 'B', 11)
@@ -44,36 +66,49 @@ class Report(FPDF):
         self.multi_cell(0, 5, text)
         self.ln(2)
 
-    def key_insight(self, text):
-        self.set_font('Helvetica', 'B', 10)
-        self.set_fill_color(255, 243, 205)
-        self.set_draw_color(255, 193, 7)
-        self.rect(self.get_x(), self.get_y(), self.w - 2*self.l_margin, 8 + 5*text.count('\n'), style='D')
-        self.set_x(self.get_x() + 3)
-        self.multi_cell(self.w - 2*self.l_margin - 6, 5, f'Key Insight: {text}')
-        self.ln(4)
+    def _boxed_text(self, label, text, fill_rgb, border_rgb, label_style='B'):
+        """Render a boxed text block with fill and border, handling page breaks."""
+        self.set_font('Helvetica', label_style, 10)
+        x0 = self.l_margin
+        w = self.w - 2 * self.l_margin
+        full_text = f'{label}: {text}'
+        # Dry-run to compute height
+        lines = self.multi_cell(w - 10, 5, full_text, dry_run=True, output='LINES')
+        h = len(lines) * 5 + 8
+        # Page break check
+        if self.get_y() + h > self.h - self.b_margin:
+            self.add_page()
+        y0 = self.get_y()
+        # Draw background rect
+        self.set_fill_color(*fill_rgb)
+        self.set_draw_color(*border_rgb)
+        self.rect(x0, y0, w, h, style='DF')
+        # Write text inside
+        self.set_xy(x0 + 5, y0 + 4)
+        self.set_font('Helvetica', label_style, 10)
+        self.multi_cell(w - 10, 5, full_text)
+        self.set_y(y0 + h + 4)
 
-    def trick(self, text):
-        self.set_font('Helvetica', 'BI', 10)
-        self.set_fill_color(209, 236, 241)
-        x0, y0 = self.get_x(), self.get_y()
-        lines = text.count('\n') + 1
-        h = 6 + 5 * lines
-        self.set_draw_color(0, 150, 136)
-        self.rect(x0, y0, self.w - 2*self.l_margin, h, style='D')
-        self.set_x(x0 + 3)
-        self.set_font('Helvetica', 'B', 9)
-        self.cell(0, 5, 'Trick:', new_x='LMARGIN', new_y='NEXT')
-        self.set_x(x0 + 3)
-        self.set_font('Helvetica', '', 9)
-        self.multi_cell(self.w - 2*self.l_margin - 6, 5, text)
-        self.ln(3)
+    def key_insight(self, text):
+        self._boxed_text('KEY INSIGHT', text,
+                         fill_rgb=(255, 237, 220),
+                         border_rgb=(224, 96, 15))
+
+    def trick(self, text, generalizable=False):
+        label = 'TRICK (Generalizable)' if generalizable else 'TRICK'
+        self._boxed_text(label, text,
+                         fill_rgb=(224, 235, 245),
+                         border_rgb=(0, 43, 92))
 
     def add_table(self, headers, rows, col_widths=None):
         if col_widths is None:
-            col_widths = [(self.w - 2*self.l_margin) / len(headers)] * len(headers)
+            col_widths = [(self.w - 2 * self.l_margin) / len(headers)] * len(headers)
+        # Check if table fits, otherwise add page
+        table_h = 7 + 6 * len(rows)
+        if self.get_y() + table_h > self.h - self.b_margin:
+            self.add_page()
         self.set_font('Helvetica', 'B', 9)
-        self.set_fill_color(41, 128, 185)
+        self.set_fill_color(0, 43, 92)
         self.set_text_color(255)
         for i, h in enumerate(headers):
             self.cell(col_widths[i], 7, h, border=1, fill=True, align='C')
@@ -88,14 +123,22 @@ class Report(FPDF):
 
     def add_image_if_exists(self, path, w=170):
         if Path(path).exists():
-            # Check if we need a new page
             if self.get_y() > 200:
                 self.add_page()
             self.image(str(path), w=w)
             self.ln(4)
         else:
             self.set_font('Helvetica', 'I', 9)
-            self.cell(0, 5, f'[Image not found: {Path(path).name}]', new_x='LMARGIN', new_y='NEXT')
+            self.cell(0, 5, f'[Image not found: {Path(path).name}]',
+                      new_x='LMARGIN', new_y='NEXT')
+
+    def generalizability_note(self, text):
+        """Small italic note about generalizability."""
+        self.set_font('Helvetica', 'I', 9)
+        self.set_text_color(80, 80, 80)
+        self.multi_cell(0, 4.5, f'Generalizability: {text}')
+        self.set_text_color(0, 0, 0)
+        self.ln(2)
 
 
 def build_report():
@@ -109,17 +152,25 @@ def build_report():
     pdf.add_page()
     pdf.ln(50)
     pdf.set_font('Helvetica', 'B', 28)
-    pdf.cell(0, 15, 'Reduced-Order Models for a', align='C', new_x='LMARGIN', new_y='NEXT')
-    pdf.cell(0, 15, 'Simscape Boost Converter', align='C', new_x='LMARGIN', new_y='NEXT')
+    pdf.cell(0, 15, 'Reduced-Order Models for a', align='C',
+             new_x='LMARGIN', new_y='NEXT')
+    pdf.cell(0, 15, 'Simscape Boost Converter', align='C',
+             new_x='LMARGIN', new_y='NEXT')
     pdf.ln(10)
     pdf.set_font('Helvetica', '', 14)
-    pdf.cell(0, 8, 'Neural ODE, LSTM-NARX, and State-Space Estimation Approaches', align='C', new_x='LMARGIN', new_y='NEXT')
-    pdf.ln(20)
+    pdf.cell(0, 8, 'Neural ODE, LSTM-NARX, and State-Space Estimation Approaches',
+             align='C', new_x='LMARGIN', new_y='NEXT')
+    pdf.ln(15)
     pdf.set_font('Helvetica', '', 11)
     pdf.cell(0, 6, 'March 2026', align='C', new_x='LMARGIN', new_y='NEXT')
-    pdf.ln(30)
+    pdf.ln(20)
     pdf.set_font('Helvetica', 'I', 10)
-    pdf.cell(0, 6, 'Best result: 47x speedup with Vout RMSE < 0.05V', align='C', new_x='LMARGIN', new_y='NEXT')
+    pdf.cell(0, 6, 'Best result: 47x speedup with Vout RMSE < 0.05V',
+             align='C', new_x='LMARGIN', new_y='NEXT')
+    pdf.ln(10)
+    pdf.set_font('Helvetica', '', 10)
+    pdf.cell(0, 6, 'Algorithms and tricks applicable to any Simscape/power-converter model',
+             align='C', new_x='LMARGIN', new_y='NEXT')
 
     # ================================================================
     # TABLE OF CONTENTS
@@ -129,20 +180,19 @@ def build_report():
     toc = [
         ('1. Introduction', '3'),
         ('2. Branch A: LSTM-NARX', '4'),
-        ('3. Branch B: State Space Estimation', '7'),
-        ('4. Branch C: PyTorch Neural ODE', '10'),
-        ('   4.1 Architecture & Normalization', '10'),
-        ('   4.2 Curriculum Training', '12'),
-        ('   4.3 Custom Loss Functions', '13'),
-        ('   4.4 Ablation Study', '14'),
-        ('   4.5 Extended Training & Results', '15'),
-        ('5. Branch C: MATLAB Neural State Space', '17'),
-        ('   5.1 Issues vs PyTorch', '17'),
-        ('   5.2 Root Cause Analysis', '18'),
-        ('   5.3 Fix Attempts', '20'),
-        ('6. PyTorch to Simulink Deployment', '22'),
-        ('7. Comparison Results', '25'),
-        ('8. Repository File Listing', '28'),
+        ('3. Branch B: State Space Estimation', '6'),
+        ('4. Branch C: PyTorch Neural ODE', '9'),
+        ('   4.1 Architecture & Normalization', '9'),
+        ('   4.2 Curriculum Training', '11'),
+        ('   4.3 Custom Loss Functions', '12'),
+        ('   4.4 Ablation Study', '13'),
+        ('   4.5 Extended Training & Results', '14'),
+        ('5. Branch C: MATLAB Neural State Space', '15'),
+        ('   5.1 Issues vs PyTorch', '15'),
+        ('   5.2 Fix Attempts', '17'),
+        ('6. PyTorch to Simulink Deployment', '18'),
+        ('7. Comparison & Timing Results', '20'),
+        ('8. Repository File Listing', '22'),
     ]
     pdf.set_font('Helvetica', '', 11)
     for title, page in toc:
@@ -160,6 +210,12 @@ def build_report():
         'switching boost converter. The goal is to replace the computationally expensive Simscape '
         'model with a fast surrogate that captures both averaged dynamics (voltage/current envelopes) '
         'and switching-frequency ripple, enabling real-time simulation and hardware-in-the-loop testing.'
+    )
+
+    pdf.generalizability_note(
+        'The ROM workflow described here (data collection, training, validation, deployment) '
+        'applies to any Simscape model, not just boost converters. The tricks and algorithms '
+        'are noted throughout as generalizable or topology-specific.'
     )
 
     pdf.section_title('Boost Converter Specifications')
@@ -186,8 +242,8 @@ def build_report():
         '  2. Capture the LC oscillatory transient after step changes\n'
         '  3. Optionally reproduce the switching ripple\n'
         '  4. Run >10x faster than Simscape\n\n'
-        'Three approaches were explored: LSTM-NARX (Branch A), linear state-space estimation (Branch B), '
-        'and Neural ODE / Neural State-Space (Branch C).'
+        'Three approaches were explored: LSTM-NARX (Branch A), linear state-space estimation '
+        '(Branch B), and Neural ODE / Neural State-Space (Branch C).'
     )
 
     # ================================================================
@@ -214,12 +270,16 @@ def build_report():
     pdf.trick(
         'DC Gain Pre-Training: Before sequence training, pre-train the LSTM on steady-state '
         'operating points from Branch B identification. This anchors the model to the correct '
-        'Vout = Vin/(1-D) relationship before learning dynamics.'
+        'DC relationship before learning dynamics. For any converter, first establish the '
+        'input-output DC operating curve, then train on transient sequences.',
+        generalizable=True
     )
 
     pdf.trick(
         'Sequence Length = 20ms (4000 samples at 5us): Chosen to cover ~12 full LC oscillation '
-        'cycles at 600 Hz, ensuring the LSTM sees the complete ring-down after a duty step change.'
+        'cycles at 600 Hz, ensuring the LSTM sees the complete ring-down after a duty step change. '
+        'For any system, set the sequence length to 10-15x the dominant oscillation period.',
+        generalizable=True
     )
 
     pdf.body(
@@ -256,32 +316,58 @@ def build_report():
         '  4. Interpolate across duty cycle to create an LPV (Linear Parameter-Varying) model'
     )
 
+    pdf.generalizability_note(
+        'FREST works with any Simulink/Simscape model. The technique of sweeping a scheduling '
+        'parameter and fitting transfer functions at each operating point is the standard '
+        'approach for building LPV models of nonlinear systems.'
+    )
+
     pdf.section_title('Key Techniques and Tricks')
 
     pdf.trick(
-        'DC Gain Correction: The identified transfer functions often have incorrect DC gain due to '
-        'the switching dynamics confusing the frequency response at low frequencies. We corrected '
-        'this by running steady-state simulations at each duty cycle and forcing the transfer '
-        'function DC gain to match: Vout_ss = Vin / (1 - D).'
+        'Switching Frequency Detection via find_system: Use MATLAB find_system to automatically '
+        'detect the switching frequency from the Simscape model. Search for PWM Generator, '
+        'Pulse Generator, and Repeating Sequence blocks, then extract the switching period '
+        'from block parameters (e.g., get_param(blk, "Period")). This eliminates manual '
+        'inspection and works for any Simscape model with switching elements.',
+        generalizable=True
     )
 
     pdf.trick(
-        'Conservative tfest Parameters: For stable LPV ROMs, use conservative tfest parameters:\n'
-        'np=2 (2 poles matching LC resonance), nz=0 (no zeros), and force stability.\n'
+        'State-Space Order from Energy Storage Elements: The model order for tfest equals the '
+        'number of independent energy storage elements. For the boost converter: 1 inductor + '
+        '1 capacitor = 2nd order (np=2). For any converter, count the inductors and capacitors '
+        'to determine the correct model order. This prevents overfitting (too high order) or '
+        'underfitting (too low order) in the system identification step.',
+        generalizable=True
+    )
+
+    pdf.trick(
+        'DC Gain Correction: The identified transfer functions often have incorrect DC gain due to '
+        'the switching dynamics confusing the frequency response at low frequencies. Correct '
+        'by running steady-state simulations at each duty cycle and forcing the transfer '
+        'function DC gain to match the measured steady-state.',
+        generalizable=True
+    )
+
+    pdf.trick(
+        'Conservative tfest Parameters: For stable LPV ROMs, use conservative tfest parameters: '
+        'np=2 (matching energy storage count), nz=0 (no zeros), and force stability. '
         'This prevents overfitting to noise in the frequency response and ensures smooth '
-        'interpolation across operating points.'
+        'interpolation across operating points.',
+        generalizable=True
     )
 
     pdf.trick(
         'Geometric Mean Cutoff for Ripple Separation: To separate averaged dynamics from '
-        'switching ripple, use a filter cutoff at the geometric mean of the LC resonance (600 Hz) '
-        'and switching frequency (200 kHz): f_cutoff = sqrt(600 * 200000) = 11 kHz.\n'
-        'This cleanly separates the two frequency bands.'
+        'switching ripple, use a filter cutoff at the geometric mean of the LC resonance and '
+        'switching frequency: f_cutoff = sqrt(f_LC * f_sw). For this converter: '
+        'sqrt(600 * 200000) = 11 kHz. This cleanly separates the two frequency bands.',
+        generalizable=True
     )
 
     pdf.add_image_if_exists(RESULTS / 'frest_bode_comparison.png', w=160)
 
-    pdf.add_page()
     pdf.section_title('LPV Model Construction')
     pdf.body(
         'The LPV model interpolates between local linear models as the duty cycle (scheduling '
@@ -330,7 +416,8 @@ def build_report():
         'Separate input and output scaling is critical. The MLP with tanh activation '
         'produces outputs in ~[-1, 1]. The dxdt_scale buffer (non-trainable) maps this to physical '
         'derivatives [~671 V/s, ~5886 A/s]. Without this, the network cannot represent the '
-        'magnitude of the derivatives, which was the #1 reason MATLAB NSS underperformed.'
+        'magnitude of the derivatives, which was the #1 reason MATLAB NSS underperformed. '
+        'This pattern (normalize inputs, scale outputs) is generalizable to any Neural ODE.'
     )
 
     pdf.section_title('4.2 Normalization Details')
@@ -350,7 +437,8 @@ def build_report():
         'Data normalization was the single most important factor for good training results. '
         'An ablation study showed that with proper normalization, even plain MSE loss achieves '
         'similar accuracy to the full custom loss (Jacobian + ripple filtering). Without '
-        'normalization, no amount of training epochs or custom loss helps.'
+        'normalization, no amount of training epochs or custom loss helps. This applies to '
+        'any Neural ODE, not just boost converters.'
     )
 
     # Curriculum training
@@ -370,11 +458,12 @@ def build_report():
     )
 
     pdf.trick(
-        'Phase 1 uses 5ms windows (covering ~3 LC oscillation periods at 600 Hz). This is the '
-        '"easy" problem: learn one transient event. Short integration windows prevent gradient '
-        'vanishing/explosion. Phase 2 increases to 20ms (12 oscillation periods, multiple duty '
-        'steps). The model must maintain accuracy over longer horizons, forcing it to learn '
-        'self-correcting dynamics.'
+        'Curriculum window sizing: Phase 1 uses 5ms windows (~3 oscillation periods of the '
+        'dominant 600 Hz mode). This is the "easy" problem: learn one transient event. Short '
+        'integration windows prevent gradient vanishing/explosion. Phase 2 increases to 20ms '
+        '(12 oscillation periods), forcing the model to learn self-correcting dynamics. For '
+        'any system, start with 2-3x the dominant period, then extend to 10-15x.',
+        generalizable=True
     )
 
     pdf.body(
@@ -398,6 +487,12 @@ def build_report():
         'Allows independent weighting of ripple accuracy.'
     )
 
+    pdf.generalizability_note(
+        'The Jacobian loss requires pre-identified linear models (from Branch B). The ripple '
+        'loss requires a known frequency separation. Both are generalizable to any system '
+        'where local linearizations or frequency bands can be identified.'
+    )
+
     # Ablation study
     pdf.add_page()
     pdf.section_title('4.5 Ablation Study')
@@ -419,7 +514,8 @@ def build_report():
     pdf.key_insight(
         'All 4 variants perform within 7% of each other. The Jacobian term provides a marginal '
         '5% improvement; the ripple filtering does not help. This confirms that proper '
-        'normalization, not custom loss functions, is the key to good Neural ODE training.'
+        'normalization, not custom loss functions, is the key to good Neural ODE training. '
+        'Conclusion: invest effort in normalization first, custom losses second.'
     )
 
     pdf.add_image_if_exists(RESULTS / 'ablation_loss_study.png', w=160)
@@ -442,8 +538,8 @@ def build_report():
         col_widths=[60, 60, 60]
     )
 
-    pdf.add_page()
     pdf.add_image_if_exists(RESULTS / 'neuralode_pytorch_validation.png', w=170)
+    pdf.add_image_if_exists(RESULTS / 'neuralode_training_history.png', w=160)
 
     # ================================================================
     # 5. MATLAB NEURAL STATE SPACE
@@ -505,11 +601,11 @@ def build_report():
         'The combination of loose solver tolerances + no output scaling + teacher forcing means '
         'MATLAB NSS was fundamentally training a different problem than PyTorch. '
         'PyTorch trains a free-running ODE integrator with proper scaling; MATLAB trains '
-        'a one-step predictor with an imprecise ODE solver.'
+        'a one-step predictor with an imprecise ODE solver. These findings apply to any '
+        'MATLAB NSS vs PyTorch Neural ODE comparison.'
     )
 
     # Fix attempts
-    pdf.add_page()
     pdf.section_title('5.3 What Was Tried')
 
     pdf.add_table(
@@ -569,10 +665,22 @@ def build_report():
     )
 
     pdf.trick(
-        'The MLP operates in normalized space, but the Euler integration and state feedback '
-        'operate in PHYSICAL space. This means normalization must be applied at the MLP input, '
-        'and the dxdt_scale multiplication + Euler step happen after denormalization. This '
-        'matches exactly how the PyTorch model computes: dxdt = dxdt_scale * MLP(norm(x), norm(u)).'
+        'PyTorch Import Fix: importNetworkFromPyTorch imports the TorchScript model but '
+        'creates an uninitialized dlnetwork with auto-generated layer names (e.g., "aten_layer_1"). '
+        'The trick: (a) build a fresh dlnetwork with a proper featureInputLayer and named layers '
+        '(fc1, tanh1, fc2, tanh2, fc3), (b) extract weight matrices from the imported network, '
+        '(c) copy them into the fresh network. This ensures proper layer naming for '
+        'exportNetworkToSimulink and makes the Simulink model readable.',
+        generalizable=True
+    )
+
+    pdf.trick(
+        'Normalization placement: The MLP operates in normalized space, but the Euler integration '
+        'and state feedback operate in PHYSICAL space. Normalization must be applied at the MLP '
+        'input, and the dxdt_scale multiplication + Euler step happen after denormalization. '
+        'This matches exactly how PyTorch computes: dxdt = dxdt_scale * MLP(norm(x), norm(u)). '
+        'This pattern applies to any Neural ODE deployed in Simulink.',
+        generalizable=True
     )
 
     pdf.section_title('Ripple Reconstruction')
@@ -588,35 +696,47 @@ def build_report():
         'so it works for any converter topology without knowing the inductor voltage equation.'
     )
 
+    pdf.add_image_if_exists(RESULTS / 'ripple_empirical_extraction.png', w=150)
+
+    pdf.generalizability_note(
+        'The empirical ripple extraction works for any switching converter. The analytical '
+        'formula (delta_iL = Vin*D*Tsw/L) is boost-specific, but the lookup-table approach '
+        'requires no topology knowledge.'
+    )
+
+    # ================================================================
+    # 7. COMPARISON & TIMING RESULTS
+    # ================================================================
+    pdf.add_page()
+    pdf.chapter_title('7. Comparison & Timing Results')
+
     pdf.section_title('Simulation Speed')
+    pdf.body(
+        'All models were benchmarked on the same 1.4-second staircase duty profile:'
+    )
     pdf.add_table(
-        ['Model', 'Sim Time (1.4s profile)', 'Speedup'],
+        ['Model', 'Sim Time', 'Speedup', 'Vout RMSE'],
         [
-            ['Simscape (reference)', '258 s', '1x'],
-            ['PyTorch Neural ODE (Layer blocks)', '5.5 s', '47x'],
-            ['PyTorch Neural ODE (Predict block)', '6.8 s', '38x'],
-            ['MATLAB Neural State Space', '2.2 s', '120x'],
+            ['Simscape (reference)', '258 s', '1x', '---'],
+            ['PyTorch ROM (Layer blocks)', '5.5 s', '47x', '< 0.05 V'],
+            ['PyTorch ROM (Predict block)', '6.8 s', '38x', '< 0.05 V'],
+            ['MATLAB NSS ROM', '2.2 s', '120x', '~0.47 V'],
         ],
-        col_widths=[60, 60, 60]
+        col_widths=[55, 35, 30, 60]
     )
 
     pdf.key_insight(
-        'Layer blocks run 24% faster than the Predict block (5.5s vs 6.8s) because the layer '
-        'blocks are compiled into native Simulink execution, while the Predict block has overhead '
-        'from the dlnetwork inference engine. MATLAB NSS is the fastest at 2.2s (120x speedup) '
-        'because the Neural State Space Simulink block is fully native MATLAB.'
+        'Layer blocks run 24% faster than the Predict block (5.5s vs 6.8s) because they '
+        'compile into native Simulink execution, avoiding dlnetwork inference overhead. '
+        'MATLAB NSS is fastest at 2.2s (120x) but with 10x worse accuracy. '
+        'The PyTorch ROM (Layer blocks) achieves the best speed-accuracy tradeoff at '
+        '47x speedup with <0.05V Vout RMSE.'
     )
-
-    # ================================================================
-    # 7. COMPARISON RESULTS
-    # ================================================================
-    pdf.add_page()
-    pdf.chapter_title('7. Comparison Results')
 
     pdf.section_title('Test Profile')
     pdf.body(
         'All three models (Simscape, PyTorch ROM, MATLAB NSS ROM) were tested with an identical '
-        'duty cycle profile:\n\n'
+        'duty cycle staircase profile:\n\n'
         '  - Initial hold at D=0.20 for 0.2s\n'
         '  - Staircase UP: 10% steps from D=0.20 to D=0.70 (0.1s per step)\n'
         '  - Staircase DOWN: 10% steps from D=0.70 to D=0.20 (0.1s per step)\n'
@@ -639,6 +759,9 @@ def build_report():
     )
 
     pdf.add_image_if_exists(RESULTS / 'branch_c_openloop_result.png', w=170)
+    pdf.add_image_if_exists(RESULTS / 'branch_c_openloop_with_ripple.png', w=170)
+
+    pdf.add_image_if_exists(RESULTS / 'nss_extended_validation.png', w=160)
 
     # ================================================================
     # 8. FILE LISTING
