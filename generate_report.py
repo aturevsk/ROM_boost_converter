@@ -391,6 +391,47 @@ def build_report():
 
     pdf.add_image_if_exists(RESULTS / 'branch_b_lpv_openloop_validation.png', w=160)
 
+    pdf.section_title('Replication Guide')
+    pdf.body(
+        'All scripts and data for Branch B are in branch_b_lpv/. To replicate on a new machine:\n\n'
+        'Step 0 - Setup\n'
+        '  git clone https://github.com/aturevsk/ROM_boost_converter\n'
+        '  Open MATLAB, cd to the repo root, run startup.m\n\n'
+        'Step 1 - Collect identification data (OPTIONAL - data already provided)\n'
+        '  Script: branch_b_lpv/collect_openloop_id_data.m\n'
+        '  Requires: simulink_models/boost_converter_test_harness.slx\n'
+        '  Method: Applies PRBS perturbations (±5% duty) at 8 operating points\n'
+        '          (D = 0.15, 0.25, 0.35, 0.45, 0.55, 0.65, 0.75, 0.85)\n'
+        '  Runtime: ~30 min (Simscape simulation at each point)\n'
+        '  Output: branch_b_lpv/data/boost_openloop_id_data.mat\n'
+        '  NOTE: Pre-collected data is already provided. Skip this step.\n\n'
+        'Step 2 - Identify transfer functions with FREST + tfest (OPTIONAL - data provided)\n'
+        '  Script: branch_b_lpv/frest_openloop_id.m\n'
+        '  Method: Parallel frestimate at 12 duty cycle points (D = 0.15 to 0.70),\n'
+        '          fits 2nd-order transfer functions using tfest,\n'
+        '          corrects DC gain via steady-state simulations.\n'
+        '  Requires: Simulink Control Design Toolbox, System Identification Toolbox\n'
+        '  Runtime: ~60 min (parallelized over 4 workers)\n'
+        '  Output: branch_b_lpv/models/boost_frest_tf_data.mat\n'
+        '  NOTE: Pre-identified models are already provided. Skip this step.\n\n'
+        'Step 3 - Build LPV ROM Simulink model\n'
+        '  Script: branch_b_lpv/build_branch_b_lpv_rom.m\n'
+        '  Input:  branch_b_lpv/models/boost_frest_tf_data.mat\n'
+        '  Output: branch_b_lpv/models/boost_openloop_branch_b.slx\n'
+        '          branch_b_lpv/models/boost_openloop_branch_b_data.mat\n'
+        '  Runtime: <1 min\n\n'
+        'Step 4 - Validate LPV ROM against Simscape\n'
+        '  Script: branch_b_lpv/validate_branch_b_openloop.m\n'
+        '  Input:  branch_b_lpv/models/boost_openloop_branch_b_data.mat\n'
+        '  Runs 8 duty step profiles through both Simscape and LPV ROM,\n'
+        '  prints RMSE table and saves validation plots.\n'
+        '  Runtime: ~10 min\n\n'
+        'Toolbox Requirements:\n'
+        '  - Simscape Electrical (for boost_converter_test_harness.slx)\n'
+        '  - System Identification Toolbox (ssest, tfest, iddata)\n'
+        '  - Simulink Control Design Toolbox (frestimate) - Steps 1-2 only'
+    )
+
     # ================================================================
     # 4. BRANCH C: PYTORCH NEURAL ODE
     # ================================================================
