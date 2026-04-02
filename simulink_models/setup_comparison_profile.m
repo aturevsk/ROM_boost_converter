@@ -1,22 +1,26 @@
 % setup_comparison_profile.m
-% Sets up THREE models with identical duty cycle profiles for interactive
+% Sets up FOUR models with identical duty cycle profiles for interactive
 % comparison in the Simulation Data Inspector:
-%   1. boost_converter_test_harness  (Simscape open-loop reference)
-%   2. boost_openloop_branch_c_predict  (Neural ODE ROM - Predict block)
-%   3. boost_openloop_branch_c_layers   (Neural ODE ROM - Layer blocks)
+%   1. boost_converter_test_harness      (Simscape open-loop reference)
+%   2. boost_openloop_branch_c_predict   (Neural ODE ROM - Predict block)
+%   3. boost_openloop_branch_c_layers    (Neural ODE ROM - Layer blocks)
+%   4. boost_openloop_nss                (Neural State Space ROM - expert trained)
 %
-% All three use the same weights (from extended_best.pt) and same input.
+% All models use the same input duty profile.
+% Neural ODE uses weights from extended_best.pt (PyTorch, val loss ~0.040).
+% NSS uses expert-trained model (NumWindowFraction=eps, val loss ~0.130).
 %
-% Duty profile:
-%   1. Staircase UP:   5% steps from D=0.10 to D=0.80 (15 steps, 10ms each)
-%   2. Staircase DOWN: 5% steps from D=0.80 to D=0.10 (15 steps, 10ms each)
-%   3. Big step UP:    D=0.10 -> 0.80 (hold 20ms)
-%   4. Big step DOWN:  D=0.80 -> 0.10 (hold 20ms)
+% Duty profile (D=0.20 to D=0.70, trained range):
+%   1. Initial hold:   D=0.20, 0.2s settling
+%   2. Staircase UP:   10% steps from D=0.20 to D=0.70
+%   3. Staircase DOWN: 10% steps from D=0.70 to D=0.20
+%   4. Big step UP:    D=0.20 -> 0.70 (hold 0.1s)
+%   5. Big step DOWN:  D=0.70 -> 0.20 (hold 0.1s)
 %
 % Usage:
 %   1. Run this script
-%   2. All three models open with the duty profile loaded
-%   3. Press Simulate on each model
+%   2. All four models open with the duty profile loaded
+%   3. Press Simulate on each model (or use sim() in batch)
 %   4. Open Simulation Data Inspector to compare
 
 thisDir = fileparts(mfilename('fullpath'));
@@ -157,11 +161,40 @@ fprintf('\n=== Configuring ROM Layers model ===\n');
 romLayers = 'boost_openloop_branch_c_layers';
 configureROMModel(romLayers, simulinkDir, stopTime);
 
-%% 6. Open all three models
+%% 6. Configure NSS model
+fprintf('\n=== Configuring NSS model ===\n');
+nssModel = 'boost_openloop_nss';
+nssFile = fullfile(simulinkDir, [nssModel '.slx']);
+
+if bdIsLoaded(nssModel), close_system(nssModel, 0); end
+load_system(nssFile);
+
+% Set stop time
+set_param(nssModel, 'StopTime', num2str(stopTime));
+
+% Enable signal logging
+set_param(nssModel, 'SignalLogging', 'on');
+
+% Ensure From Workspace duty input is configured
+fwsBlks = find_system(nssModel, 'SearchDepth', 2, 'BlockType', 'FromWorkspace');
+stepBlks = find_system(nssModel, 'SearchDepth', 2, 'BlockType', 'Step');
+
+if ~isempty(stepBlks)
+    configureROMModel(nssModel, simulinkDir, stopTime);
+elseif ~isempty(fwsBlks)
+    set_param(fwsBlks{1}, 'VariableName', 'duty_input');
+    fprintf('  From Workspace updated\n');
+end
+
+save_system(nssModel, nssFile);
+fprintf('  %s configured: StopTime=%.3fs\n', nssModel, stopTime);
+
+%% 7. Open all four models
 fprintf('\n=== Opening models for interactive simulation ===\n');
 open_system(simscapeModel);
 open_system(romPredict);
 open_system(romLayers);
+open_system(nssModel);
 
 % Open SDI
 fprintf('  Opening Simulation Data Inspector...\n');
@@ -169,10 +202,11 @@ Simulink.sdi.view;
 
 fprintf('\n=== Ready! ===\n');
 fprintf('  1. Simulate "%s" (Simscape reference)\n', simscapeModel);
-fprintf('  2. Simulate "%s" (Neural ODE - Predict)\n', romPredict);
-fprintf('  3. Simulate "%s" (Neural ODE - Layers)\n', romLayers);
-fprintf('  4. Compare all signals in the Simulation Data Inspector\n');
-fprintf('  Duty profile: staircase up/down (5%% steps) + big transients\n');
+fprintf('  2. Simulate "%s" (Neural ODE - Predict block)\n', romPredict);
+fprintf('  3. Simulate "%s" (Neural ODE - Layer blocks)\n', romLayers);
+fprintf('  4. Simulate "%s" (Neural State Space - expert trained)\n', nssModel);
+fprintf('  5. Compare all signals in the Simulation Data Inspector\n');
+fprintf('  Duty profile: D=0.20-0.70, staircase up/down (10%% steps) + big transients\n');
 
 
 %% ========================================================================
