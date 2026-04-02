@@ -306,20 +306,62 @@ def build_report():
     pdf.add_page()
     pdf.chapter_title('3. Branch B: State Space Estimation')
 
-    pdf.section_title('Frequency Response Estimation (FREST)')
     pdf.body(
-        'Branch B uses MATLAB System Identification Toolbox to extract linear models at multiple '
-        'operating points across the duty cycle range:\n\n'
-        '  1. Run FREST (Frequency Response Estimation) at each duty cycle point\n'
-        '  2. Fit transfer functions using tfest (2nd order, matching LC dynamics)\n'
-        '  3. Convert to state-space representation (A, B, C, D matrices)\n'
-        '  4. Interpolate across duty cycle to create an LPV (Linear Parameter-Varying) model'
+        'Two identification approaches were explored to extract linear models at multiple '
+        'duty cycle operating points. Both produce A, B, C, D matrices at each grid point '
+        'which are then interpolated to form an LPV (Linear Parameter-Varying) model.'
+    )
+
+    pdf.section_title('Approach 1: PRBS + ssest (Time Domain)')
+    pdf.body(
+        'Script: branch_b_lpv/collect_openloop_id_data.m\n\n'
+        'At each operating point (D = 0.15, 0.25, ..., 0.85):\n'
+        '  1. Apply a small PRBS perturbation (+-5% duty) around the DC operating point\n'
+        '  2. Record the Vout and iL time-domain response\n'
+        '  3. Pass iddata(dVout, du, Ts) to ssest to identify a 2nd-order state-space model\n\n'
+        'Simple and direct, but relies on ssest to separate dynamics from switching noise '
+        'in the raw time-domain data. No post-processing corrections applied.'
+    )
+
+    pdf.section_title('Approach 2: frestimate + tfest (Frequency Domain) -- USED IN FINAL ROM')
+    pdf.body(
+        'Script: branch_b_lpv/frest_openloop_id.m\n\n'
+        'At each operating point (D = 0.15, 0.20, ..., 0.70), run in parallel:\n'
+        '  1. DC gain measurement: two constant-duty steady-state simulations\n'
+        '  2. frestimate: inject known frequencies, measure FRD (frequency response data)\n'
+        '  3. tfest: fit 2nd-order TF to FRD with np=2, nz=0 (forced by LC count)\n'
+        '  4. PEM refinement: refine on step response to correct transient shape\n'
+        '  5. DC gain correction: force TF DC gain to match steady-state measurement\n'
+        '  6. iL sign/magnitude verification: re-check iL DC gain serially after parfor\n'
+        '  7. Convert TF to state-space: ss(tfest_model) gives A, B, C, D matrices\n\n'
+        'The A matrices at each operating point are used as Jacobian targets in PyTorch '
+        'Neural ODE training (Jacobian matching loss: MSE(df/dx, A_ssest)).'
     )
 
     pdf.generalizability_note(
-        'FREST works with any Simulink/Simscape model. The technique of sweeping a scheduling '
-        'parameter and fitting transfer functions at each operating point is the standard '
+        'Both approaches work with any Simulink/Simscape model. The technique of sweeping '
+        'a scheduling parameter and fitting models at each operating point is the standard '
         'approach for building LPV models of nonlinear systems.'
+    )
+
+    pdf.section_title('Why Approach 2 Outperforms Approach 1')
+    pdf.body(
+        '1. DC gain correction (biggest factor): frestimate at low frequencies is corrupted '
+        'by switching harmonics, giving wrong DC gain. Approach 2 measures DC gain from '
+        'separate steady-state simulations and forces the TF to match. Approach 1 has no '
+        'such correction -- ssest fits the raw PRBS data including low-frequency errors.\n\n'
+        '2. PEM refinement: after tfest, a second pass with pem on step response data '
+        'corrects both DC gain and transient shape simultaneously. Approach 1 is single-pass.\n\n'
+        '3. Frequency domain rejects switching noise: frestimate injects at known frequencies '
+        'and measures response at exactly those frequencies, naturally rejecting ripple at '
+        'other frequencies. PRBS in time domain mixes everything and relies on ssest to '
+        'separate dynamics from noise.\n\n'
+        '4. iL gain verification: Approach 2 includes an explicit post-parfor serial loop '
+        'that catches and corrects sign errors and >10% magnitude errors in iL DC gain -- '
+        'a known failure mode when parfor workers log the wrong signal.\n\n'
+        '5. Forced model structure: tfest(np=2, nz=0) strictly enforces 2nd order with no '
+        'zeros, matching the physics. ssest with order=2 fits a more general structure '
+        'that can overfit switching noise.'
     )
 
     pdf.section_title('Key Techniques and Tricks')
