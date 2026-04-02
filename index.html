@@ -192,7 +192,9 @@ const FILES=[
 {p:"results/branch_c_openloop_with_ripple.png",t:"png",s:"52 KB",d:"Open-loop result with iL ripple reconstruction added to Neural ODE ROM"},
 {p:"results/lstm_validation_final.png",t:"png",s:"52 KB",d:"Branch A: LSTM-NARX Vout prediction showing autoregressive tracking"},
 {p:"results/frest_bode_comparison.png",t:"png",s:"72 KB",d:"Branch B: Frequency response estimation Bode plots at multiple duty cycles"},
-{p:"results/branch_b_lpv_openloop_validation.png",t:"png",s:"160 KB",d:"Branch B: LPV model open-loop validation showing linear model limitations"},
+{p:"results/branch_b_small_signal_validation.png",t:"png",s:"95 KB",d:"Branch B: Small-signal step validation (+0.02 duty) — linear models match Simscape well at each operating point"},
+{p:"results/branch_b_large_transient_validation.png",t:"png",s:"160 KB",d:"Branch B: Large-transient validation — LPV fails for large duty steps (0.1-0.45 range) showing nonlinear extrapolation breakdown"},
+{p:"results/branch_b_lpv_openloop_validation.png",t:"png",s:"160 KB",d:"Branch B: Additional open-loop validation across 8 step profiles"},
 {p:"results/ripple_empirical_extraction.png",t:"png",s:"38 KB",d:"Empirical iL ripple extraction: measured delta_iL vs duty from Simscape"},
 {p:"report/ROM_Boost_Converter_Report.pdf",t:"pdf",s:"~200 KB",d:"Comprehensive 17-page report covering all branches, key insights, tricks, and findings"},
 ];

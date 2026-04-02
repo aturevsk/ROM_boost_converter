@@ -423,12 +423,39 @@ def build_report():
         'an empirical ripple extraction approach was later developed (see Section 6).'
     )
 
+    pdf.section_title('Results')
+
+    pdf.body('Small-signal validation (small duty cycle steps of +0.02 around each operating point):')
+    pdf.add_image_if_exists(RESULTS / 'branch_b_small_signal_validation.png', w=160)
+    pdf.body(
+        'The identified linear models match Simscape very well for small perturbations around '
+        'each operating point. Vout step responses are captured accurately across the full '
+        'duty cycle range (D = 0.15 to 0.70), confirming that the frestimate+tfest pipeline '
+        'produces accurate local linear models.'
+    )
+
+    pdf.body('Large-transient validation (duty cycle steps of 0.10 to 0.45, across operating points):')
+    pdf.add_image_if_exists(RESULTS / 'branch_b_large_transient_validation.png', w=160)
+    pdf.body(
+        'For large duty cycle steps the LPV model breaks down. The top rows (Vout) show '
+        'significant deviations during transients, and the bottom rows (iL_avg) diverge '
+        'entirely for large excursions. This is the fundamental limitation of the linear '
+        'interpolation approach: each local model is accurate near its operating point, but '
+        'interpolating between distant operating points cannot capture the nonlinear coupling '
+        'between states during large transients.\n\n'
+        'For example, stepping from D=0.20 to D=0.60 takes the converter through a large '
+        'voltage and current swing that no individual linear model was identified to handle. '
+        'The interpolated A(D) matrix changes smoothly but the true plant dynamics change '
+        'nonlinearly, creating mismatch in both transient shape and settling time.'
+    )
+
     pdf.section_title('Limitations')
     pdf.body(
         'The LPV approach works well for small-signal behavior around each operating point but '
         'fails for large-signal transients (e.g., stepping from D=0.2 to D=0.7). The linear models '
         'cannot capture the nonlinear coupling between states during large excursions.\n\n'
-        'This motivated Branch C: a nonlinear Neural ODE that can handle arbitrary operating ranges.'
+        'This motivated Branch C: a nonlinear Neural ODE that can handle arbitrary operating ranges '
+        'by learning the full nonlinear dynamics from trajectory data.'
     )
 
     pdf.add_image_if_exists(RESULTS / 'branch_b_lpv_openloop_validation.png', w=160)
