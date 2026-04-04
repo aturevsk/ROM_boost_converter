@@ -1,27 +1,15 @@
-function train_dlt_neural_ode(testMode)
-% train_dlt_neural_ode  Custom Neural ODE training loop in MATLAB Deep Learning Toolbox.
+function train_dlt_neural_ode_v3(testMode)
+% train_dlt_neural_ode_v3  V3: V1 RK4 + cosine LR schedule
 %
 % Usage:
-%   train_dlt_neural_ode()           % full training
-%   train_dlt_neural_ode('test')     % 2-epoch smoke test
+%   train_dlt_neural_ode_v3()           % full training
+%   train_dlt_neural_ode_v3('test')     % 2-epoch smoke test
+%   train_dlt_neural_ode_v3('testjac')  % 1-epoch with Jacobian
 %
-% Replicates PyTorch train_neural_ode_pytorch.py:
-%
-% Replicates PyTorch train_neural_ode_pytorch.py as closely as possible:
-%   - Same MLP architecture: [Vout_n, iL_n, d_n] -> 64 -> tanh -> 64 -> tanh -> 2
-%   - Same RK4 integration at dt=50us (step_skip=10)
-%   - Same 3-phase curriculum (5ms / 20ms windows)
-%   - Same custom loss: L_traj + λ_J*L_jacobian; L_avg + λ_ripple*L_ripple
-%   - Same train/val split (last 3 profiles = val)
-%   - dlaccelerate for JIT compilation
-%   - maxNumCompThreads for M4 Max CPU
-%
-% Benchmark goal: compare epoch time and final val loss vs PyTorch.
-%
-% Key differences from PyTorch:
-%   - No GPU (Apple Silicon not supported by MATLAB gpuArray)
-%   - Filter implemented as explicit IIR loop (same algorithm as PyTorch)
-%   - Jacobian computed via dljacobian (exact autodiff, same as PyTorch)
+% V3 = V1 (manual RK4 + direct backprop) + cosine annealing LR
+% V1 was missing PyTorch's CosineAnnealingLR(optimizer, n_epochs, eta_min=lr*0.01)
+% V2 tried dlode45 adjoint but caused solver mismatch (worse full-profile accuracy)
+% V3 keeps V1's proven RK4 approach and adds only the missing LR schedule
 
 if nargin < 1, testMode = ''; end
 isTest = strcmp(testMode, 'test');
@@ -30,7 +18,7 @@ thisDir  = fileparts(mfilename('fullpath'));
 repoRoot = fileparts(thisDir);
 run(fullfile(repoRoot, 'startup.m'));
 
-fprintf('=== DLT Neural ODE (Custom Training Loop) ===\n');
+fprintf('=== DLT Neural ODE V3 (RK4 + Cosine LR) ===\n');
 fprintf('MATLAB %s | Deep Learning Toolbox | CPU\n', version('-release'));
 
 %% ── Configuration ──────────────────────────────────────────────────────────
@@ -42,7 +30,7 @@ NU         = 1;          % input: duty
 HIDDEN     = 64;         % units per hidden layer
 N_VAL      = 3;          % last 3 profiles = validation
 
-CHECKPOINT_DIR = fullfile(thisDir, 'checkpoints_dlt');
+CHECKPOINT_DIR = fullfile(thisDir, 'checkpoints_dlt_v3');
 if ~isfolder(CHECKPOINT_DIR), mkdir(CHECKPOINT_DIR); end
 
 % Maximise CPU threads on M4 Max
@@ -189,10 +177,10 @@ totalEpochs   = 0;
 startPhaseIdx = 1;
 
 % Priority: latest (mid-epoch) > phase completion > best-only
-latestCp  = fullfile(CHECKPOINT_DIR, 'dlt_latest.mat');
+latestCp  = fullfile(CHECKPOINT_DIR, 'dlt_v3_latest.mat');
 ph1Cp     = fullfile(CHECKPOINT_DIR, 'dlt_after_Phase1_HalfOsc.mat');
 ph2Cp     = fullfile(CHECKPOINT_DIR, 'dlt_after_Phase2_FullOsc.mat');
-bestCp    = fullfile(CHECKPOINT_DIR, 'dlt_best.mat');
+bestCp    = fullfile(CHECKPOINT_DIR, 'dlt_v3_best.mat');
 
 if isfile(latestCp)
     cpFile = latestCp;
@@ -238,7 +226,8 @@ for phIdx = startPhaseIdx:numel(phases)
     nEpochs   = ph.epochs;
     winSamples = round(ph.window_ms * 1e-3 / TS);  % window length at TS
     winSub     = floor((winSamples - 1) / STEP_SKIP) + 1; % subsampled window
-    lr         = ph.lr;
+    lr_max     = ph.lr;
+    lr_min     = lr_max * 0.01;  % cosine floor (same as PyTorch eta_min)
     lam_J      = ph.lambda_J;
     lam_rip    = ph.lambda_ripple;
     winPerProf = ph.win_per_prof;
@@ -246,8 +235,8 @@ for phIdx = startPhaseIdx:numel(phases)
     % Clear dlaccelerate cache when window size changes (new computation graph)
     clearCache(accLossFcn);
 
-    fprintf('\n--- %s: %d epochs | window=%.0fms (%d sub-steps) | LR=%.1e | λ_J=%.3f | λ_rip=%.2f ---\n', ...
-        phName, nEpochs, ph.window_ms, winSub, lr, lam_J, lam_rip);
+    fprintf('\n--- %s: %d ep | win=%.0fms (%d sub) | LR=%.1e->%.1e | lJ=%.3f | lR=%.2f ---\n', ...
+        phName, nEpochs, ph.window_ms, winSub, lr_max, lr_min, lam_J, lam_rip);
 
     % Per-phase Adam state (reset each phase like PyTorch creates new optimizer)
     avgGrad   = [];
@@ -260,6 +249,9 @@ for phIdx = startPhaseIdx:numel(phases)
     for epoch = 1:nEpochs
         totalEpochs = totalEpochs + 1;
         tEpoch = tic;
+
+        % Cosine annealing LR (matching PyTorch CosineAnnealingLR)
+        lr = lr_min + 0.5 * (lr_max - lr_min) * (1 + cos(pi * (epoch-1) / nEpochs));
 
         epochLoss  = 0;
         nWindows   = 0;
@@ -338,7 +330,7 @@ for phIdx = startPhaseIdx:numel(phases)
                 noImprove   = 0;
                 improved    = ' ***BEST***';
                 % Save immediately on new best
-                saveCheckpoint(CHECKPOINT_DIR, 'dlt_best.mat', ...
+                saveCheckpoint(CHECKPOINT_DIR, 'dlt_v3_best.mat', ...
                     net, bestNet, bestValLoss, trainHistory, valHistory, ...
                     totalEpochs, phIdx, normStats);
             else
@@ -346,16 +338,16 @@ for phIdx = startPhaseIdx:numel(phases)
             end
 
             elapsed = toc(tStart) / 60;
-            fprintf('  [%s] Ep %3d/%d | Train: %.4f | Val: %.4f | %.1fs/ep | %.1fmin tot%s\n', ...
-                phName, epoch, nEpochs, avgTrain, valLoss, epochTime, elapsed, improved);
+            fprintf('  [%s] Ep %3d/%d | Train: %.4f | Val: %.4f | LR: %.1e | %.1fs/ep | %.1fmin%s\n', ...
+                phName, epoch, nEpochs, avgTrain, valLoss, lr, epochTime, elapsed, improved);
         else
-            fprintf('  [%s] Ep %3d/%d | Train: %.4f | %.1fs/ep\n', ...
-                phName, epoch, nEpochs, avgTrain, epochTime);
+            fprintf('  [%s] Ep %3d/%d | Train: %.4f | LR: %.1e | %.1fs/ep\n', ...
+                phName, epoch, nEpochs, avgTrain, lr, epochTime);
         end
 
         % Periodic checkpoint (every CHECKPOINT_MIN minutes)
         if toc(tLastCp) > CHECKPOINT_MIN * 60
-            saveCheckpoint(CHECKPOINT_DIR, 'dlt_latest.mat', ...
+            saveCheckpoint(CHECKPOINT_DIR, 'dlt_v3_latest.mat', ...
                 net, bestNet, bestValLoss, trainHistory, valHistory, ...
                 totalEpochs, phIdx, normStats);
             tLastCp = tic;
@@ -377,7 +369,7 @@ end
 
 %% ── Final summary ───────────────────────────────────────────────────────────
 totalMin = toc(tStart) / 60;
-fprintf('\n=== Training complete ===\n');
+fprintf('\n=== V3 Training complete ===\n');
 fprintf('  Total time: %.1f min (%.1f h)\n', totalMin, totalMin/60);
 fprintf('  Total epochs: %d\n', totalEpochs);
 fprintf('  Best val loss: %.4f\n', bestValLoss);
@@ -385,12 +377,12 @@ fprintf('  PyTorch reference: 0.040\n');
 fprintf('  Ratio vs PyTorch: %.2fx\n', bestValLoss / 0.040);
 
 % Save final model
-saveCheckpoint(CHECKPOINT_DIR, 'dlt_final.mat', ...
+saveCheckpoint(CHECKPOINT_DIR, 'dlt_v3_final.mat', ...
     bestNet, bestNet, bestValLoss, trainHistory, valHistory, ...
     totalEpochs, numel(phases)+1, normStats);
 fprintf('Final model saved.\n');
 
-end  % function train_dlt_neural_ode
+end  % function train_dlt_neural_ode_v3
 
 
 %% ========================================================================
