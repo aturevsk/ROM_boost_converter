@@ -462,9 +462,18 @@ def run_single(seed, max_hours, is_test=False):
     log("\nLoading data...")
     profiles_u, profiles_y = load_training_data()
     n_total = len(profiles_u)
-    n_train = n_total - 3
 
-    stats = compute_norm_stats(profiles_u[:n_train], profiles_y[:n_train])
+    # Train/val split: val profiles chosen for mid-range interpolation testing
+    # Val 5  (D=0.25-0.65): wide-range transients
+    # Val 12 (D=0.35-0.45): narrow-band mid-low
+    # Val 14 (D=0.45-0.55): narrow-band mid-high
+    # All other profiles (including edge cases 7,8,17,18) used for training
+    VAL_INDICES = [4, 11, 13]  # 0-based: profiles 5, 12, 14
+    TRAIN_INDICES = [i for i in range(n_total) if i not in VAL_INDICES]
+
+    stats = compute_norm_stats(
+        [profiles_u[i] for i in TRAIN_INDICES],
+        [profiles_y[i] for i in TRAIN_INDICES])
     normalizer = Normalizer(stats)
     log(f"  Normalization: dxdt_scale=[{stats['dxdt_std'][0]:.0f}, {stats['dxdt_std'][1]:.0f}]")
 
@@ -475,11 +484,13 @@ def run_single(seed, max_hours, is_test=False):
     A_targets, x_ops, u_ops = load_jacobian_targets()
     has_jacobian = A_targets is not None
 
-    train_u = [torch.tensor(profiles_u[i]) for i in range(n_train)]
-    train_y = [torch.tensor(profiles_y[i]) for i in range(n_train)]
-    val_u = [torch.tensor(profiles_u[i]) for i in range(n_total - 3, n_total)]
-    val_y = [torch.tensor(profiles_y[i]) for i in range(n_total - 3, n_total)]
-    log(f"  Train: {n_train}, Val: 3")
+    train_u = [torch.tensor(profiles_u[i]) for i in TRAIN_INDICES]
+    train_y = [torch.tensor(profiles_y[i]) for i in TRAIN_INDICES]
+    val_u = [torch.tensor(profiles_u[i]) for i in VAL_INDICES]
+    val_y = [torch.tensor(profiles_y[i]) for i in VAL_INDICES]
+    n_train = len(TRAIN_INDICES)
+    log(f"  Train: {n_train} profiles, Val: {len(VAL_INDICES)} profiles (5,12,14)")
+    log(f"  Val ranges: D=[0.25-0.65], D=[0.35-0.45], D=[0.45-0.55]")
 
     # ---- Build model ----
     dxdt_scale = torch.tensor(stats['dxdt_std'], dtype=torch.float32)
@@ -797,6 +808,7 @@ def run_single(seed, max_hours, is_test=False):
                      'progressive_windows': [20, 40, 80]},
         'step_skip': STEP_SKIP, 'ts': TS, 'hidden': HIDDEN,
         'init_from_linear': has_jacobian,
+        'val_profiles': [i+1 for i in VAL_INDICES],  # 1-based for readability
         'max_hours': max_hours,
     }
     results = {
