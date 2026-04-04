@@ -41,6 +41,11 @@ import torch.nn as nn
 from torch.autograd.functional import jacobian
 from scipy.signal import butter
 from pathlib import Path
+try:
+    from torchdiffeq import odeint_adjoint, odeint as odeint_direct
+    HAS_TORCHDIFFEQ = True
+except ImportError:
+    HAS_TORCHDIFFEQ = False
 
 # ============================================================
 # Paths (relative to this script)
@@ -61,6 +66,10 @@ HIDDEN = [64, 64]   # MLP hidden layers
 TS = 5e-6           # base sample period (5 us)
 STEP_SKIP = 10      # subsample factor -> effective dt = 50 us
 DEVICE = 'cpu'      # CPU faster than MPS for tiny model
+
+# Pin each process to 1 thread — prevents contention when running parallel seeds
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
 
 # Filter cutoff: geometric mean of LC resonance and switching frequency
 F_RES = 600         # Hz (LC resonance)
@@ -225,10 +234,33 @@ def apply_filter_torch(x, b, a):
 
 
 # ============================================================
-# Loss Functions
+# ODE Integration (RK4 or adjoint)
 # ============================================================
-def integrate_ode(model, x0, u_seq, normalizer, step_skip=STEP_SKIP):
-    """RK4 integration, returns subsampled trajectory."""
+
+# Global solver setting — set by run_single() based on --solver flag
+_SOLVER = 'rk4'
+
+
+class ODEFunc(nn.Module):
+    """Wrapper for torchdiffeq: stores current u_n and normalizer."""
+    def __init__(self, rhs, normalizer):
+        super().__init__()
+        self.rhs = rhs
+        self.norm = normalizer
+        self.u_n_current = None  # set before each odeint call
+
+    def forward(self, t, x):
+        if x.dim() == 1:
+            x = x.unsqueeze(0)
+        x_n = self.norm.norm_x(x)
+        u_n = self.u_n_current
+        if u_n.dim() == 1:
+            u_n = u_n.unsqueeze(0)
+        return self.rhs(x_n, u_n).squeeze(0)
+
+
+def integrate_ode_rk4(model, x0, u_seq, normalizer, step_skip=STEP_SKIP):
+    """Manual fixed-step RK4 integration, returns subsampled trajectory."""
     T = len(u_seq)
     dt = TS * step_skip
     T_sub = (T - 1) // step_skip + 1
@@ -253,11 +285,65 @@ def integrate_ode(model, x0, u_seq, normalizer, step_skip=STEP_SKIP):
     return x_pred, T_sub
 
 
+def integrate_ode_adjoint(model, ode_func, x0, u_seq, normalizer, step_skip=STEP_SKIP):
+    """torchdiffeq odeint_adjoint integration. Adaptive solver + adjoint gradients."""
+    T = len(u_seq)
+    T_sub = (T - 1) // step_skip + 1
+    dt_sub = TS * step_skip
+    x_pred = torch.zeros(T_sub, NX)
+    x_pred[0] = x0
+    x = x0
+
+    for k in range(T_sub - 1):
+        orig_idx = min(k * step_skip, T - 1)
+        u_k = u_seq[orig_idx].unsqueeze(0)
+        ode_func.u_n_current = normalizer.norm_u(u_k)
+
+        t_span = torch.tensor([0.0, dt_sub])
+        x_next = odeint_adjoint(ode_func, x, t_span, method='dopri5',
+                                rtol=1e-4, atol=1e-6)
+        x = x_next[-1]  # take endpoint
+        x_pred[k + 1] = x
+
+    return x_pred, T_sub
+
+
+def integrate_ode(model, x0, u_seq, normalizer, step_skip=STEP_SKIP, ode_func=None):
+    """Dispatch to RK4 or adjoint based on global _SOLVER setting."""
+    if _SOLVER == 'adjoint' and ode_func is not None:
+        return integrate_ode_adjoint(model, ode_func, x0, u_seq, normalizer, step_skip)
+    else:
+        return integrate_ode_rk4(model, x0, u_seq, normalizer, step_skip)
+
+
+def integrate_ode_rk4_batched(model, x0_batch, u_batch, normalizer, step_skip=STEP_SKIP):
+    """Batched RK4: x0_batch [B,2], u_batch [B,T]. Returns [B, T_sub, 2]."""
+    B, T = u_batch.shape
+    dt = TS * step_skip
+    T_sub = (T - 1) // step_skip + 1
+    x = x0_batch  # [B, 2]
+    preds = [x]
+    for k in range(T_sub - 1):
+        oi = min(k * step_skip, T - 1)
+        u_k_n = normalizer.norm_u(u_batch[:, oi].unsqueeze(1))  # [B, 1]
+
+        def dxdt_fn(xp):
+            return model(normalizer.norm_x(xp), u_k_n)
+
+        k1 = dxdt_fn(x)
+        k2 = dxdt_fn(x + 0.5 * dt * k1)
+        k3 = dxdt_fn(x + 0.5 * dt * k2)
+        k4 = dxdt_fn(x + dt * k3)
+        x = x + (dt / 6.0) * (k1 + 2 * k2 + 2 * k3 + k4)
+        preds.append(x)
+    return torch.stack(preds, dim=1)  # [B, T_sub, 2]
+
+
 def trajectory_loss(model, x0, u_seq, y_true, normalizer,
-                    step_skip=STEP_SKIP, lambda_ripple=0.0):
+                    step_skip=STEP_SKIP, lambda_ripple=0.0, ode_func=None):
     """Trajectory matching loss with optional LP/HP ripple decomposition."""
     T = len(u_seq)
-    x_pred, T_sub = integrate_ode(model, x0, u_seq, normalizer, step_skip)
+    x_pred, T_sub = integrate_ode(model, x0, u_seq, normalizer, step_skip, ode_func=ode_func)
     y_sub = y_true[::step_skip][:T_sub]
 
     x_pred_n = normalizer.norm_x(x_pred)
@@ -278,6 +364,42 @@ def trajectory_loss(model, x0, u_seq, y_true, normalizer,
             loss_avg = torch.mean((x_lp[skip:] - y_lp[skip:]) ** 2)
             loss_ripple = torch.mean((x_hp[skip:] - y_hp[skip:]) ** 2)
             return loss_avg + lambda_ripple * loss_ripple
+        else:
+            return torch.mean((x_pred_n - y_sub_n) ** 2)
+    else:
+        return torch.mean((x_pred_n - y_sub_n) ** 2)
+
+
+def trajectory_loss_batched(model, x0_batch, u_batch, y_batch, normalizer,
+                            step_skip=STEP_SKIP, lambda_ripple=0.0):
+    """Batched trajectory loss: x0_batch [B,2], u_batch [B,T], y_batch [B,T,2].
+    Returns scalar loss averaged over all windows in the batch."""
+    B, T = u_batch.shape
+    x_pred = integrate_ode_rk4_batched(model, x0_batch, u_batch, normalizer, step_skip)
+    T_sub = x_pred.shape[1]
+    y_sub = y_batch[:, ::step_skip, :][:, :T_sub, :]  # [B, T_sub, 2]
+
+    x_pred_n = normalizer.norm_x(x_pred)
+    y_sub_n = normalizer.norm_x(y_sub)
+
+    if lambda_ripple > 0 and T_sub > 20:
+        fs_eff = 1.0 / (TS * step_skip)
+        f_nyq = fs_eff / 2.0
+        f_norm = min(FILTER_CUTOFF / f_nyq, 0.95)
+        if f_norm > 0.05:
+            b_lp, a_lp = butter(2, f_norm, btype='low')
+            b_hp, a_hp = butter(2, f_norm, btype='high')
+            # Filter each window in batch independently
+            skip = max(T_sub // 10, 5)
+            loss_total = torch.tensor(0.0)
+            for b in range(B):
+                x_lp = apply_filter_torch(x_pred_n[b], b_lp, a_lp)
+                y_lp = apply_filter_torch(y_sub_n[b], b_lp, a_lp)
+                x_hp = apply_filter_torch(x_pred_n[b], b_hp, a_hp)
+                y_hp = apply_filter_torch(y_sub_n[b], b_hp, a_hp)
+                loss_total = loss_total + torch.mean((x_lp[skip:] - y_lp[skip:]) ** 2)
+                loss_total = loss_total + lambda_ripple * torch.mean((x_hp[skip:] - y_hp[skip:]) ** 2)
+            return loss_total / B
         else:
             return torch.mean((x_pred_n - y_sub_n) ** 2)
     else:
@@ -427,20 +549,36 @@ def append_seed_log(seed, config, results, log_path):
         'config': config,
         'results': results,
     }
-    log_data = []
-    if log_path.exists():
-        with open(log_path) as f:
-            log_data = json.load(f)
-    log_data.append(entry)
-    with open(log_path, 'w') as f:
-        json.dump(log_data, f, indent=2, default=lambda o: float(o) if hasattr(o, 'item') else o)
+    # File lock to prevent races when multiple parallel processes finish near same time
+    import fcntl
+    lock_path = str(log_path) + '.lock'
+    with open(lock_path, 'w') as lock_f:
+        fcntl.flock(lock_f, fcntl.LOCK_EX)
+        log_data = []
+        if log_path.exists():
+            with open(log_path) as f:
+                log_data = json.load(f)
+        log_data.append(entry)
+        with open(log_path, 'w') as f:
+            json.dump(log_data, f, indent=2, default=lambda o: float(o) if hasattr(o, 'item') else o)
+        fcntl.flock(lock_f, fcntl.LOCK_UN)
 
 
 # ============================================================
 # Single training run
 # ============================================================
-def run_single(seed, max_hours, is_test=False):
-    """Full training pipeline: Phase 1-3 curriculum + Phase 4 extended."""
+def run_single(seed, max_hours, is_test=False, solver='rk4', batch_size=1):
+    """Full training pipeline: Phase 1-3 curriculum + Phase 4 extended.
+    solver: 'rk4' (fixed-step, default) or 'adjoint' (torchdiffeq adaptive + adjoint)
+    batch_size: 1=individual windows (default), >1=mini-batch RK4 (rk4 solver only)
+    """
+    global _SOLVER
+    _SOLVER = solver
+
+    if solver == 'adjoint' and not HAS_TORCHDIFFEQ:
+        log("ERROR: --solver adjoint requires torchdiffeq. Install: pip install torchdiffeq")
+        return float('inf'), None, {}, {}
+
     run_dir = CHECKPOINT_BASE / f'run_{seed:04d}'
     run_dir.mkdir(parents=True, exist_ok=True)
 
@@ -477,8 +615,8 @@ def run_single(seed, max_hours, is_test=False):
     normalizer = Normalizer(stats)
     log(f"  Normalization: dxdt_scale=[{stats['dxdt_std'][0]:.0f}, {stats['dxdt_std'][1]:.0f}]")
 
-    # Save stats
-    with open(MODEL_DIR / 'neuralode_norm_stats.json', 'w') as f:
+    # Save stats to run folder (avoid races when running parallel seeds)
+    with open(run_dir / 'norm_stats.json', 'w') as f:
         json.dump(stats, f, indent=2)
 
     A_targets, x_ops, u_ops = load_jacobian_targets()
@@ -501,6 +639,14 @@ def run_single(seed, max_hours, is_test=False):
     # Physics-informed initialization
     if has_jacobian:
         initialize_from_linear(model, A_targets, x_ops, u_ops, normalizer)
+
+    # ODE function wrapper (for adjoint solver)
+    ode_func = ODEFunc(model, normalizer) if solver == 'adjoint' else None
+    log(f"  Solver: {solver}" + (" (torchdiffeq odeint_adjoint + dopri5)" if solver == 'adjoint' else " (manual fixed-step RK4, dt=50us)"))
+    if batch_size > 1:
+        log(f"  Batch size: {batch_size} (mini-batch RK4)")
+    else:
+        log(f"  Batch size: 1 (individual windows)")
 
     # ---- Phase definitions ----
     if is_test:
@@ -553,24 +699,58 @@ def run_single(seed, max_hours, is_test=False):
             n_windows = 0
             perm = np.random.permutation(n_train)
 
+            # Collect all windows for this epoch
+            all_windows = []
             for p_idx in perm:
                 u_p, y_p = train_u[p_idx], train_y[p_idx]
                 T = len(u_p)
                 n_win_total = max(1, T // window_samples)
                 n_use = min(win_per_prof, n_win_total)
                 win_starts = np.random.choice(n_win_total, n_use, replace=False)
-
                 for w in win_starts:
                     s = w * window_samples
                     e = min(s + window_samples, T)
-                    if e - s < 20:
+                    if e - s < window_samples:
                         continue
-                    u_win, y_win = u_p[s:e], y_p[s:e]
+                    all_windows.append((u_p[s:s+window_samples], y_p[s:s+window_samples]))
+
+            # Shuffle windows
+            np.random.shuffle(all_windows)
+
+            if batch_size > 1 and solver == 'rk4':
+                # ── Mini-batch RK4 path ──
+                for bi in range(0, len(all_windows), batch_size):
+                    batch = all_windows[bi:bi+batch_size]
+                    B = len(batch)
+                    u_batch = torch.stack([w[0] for w in batch])     # [B, T]
+                    y_batch = torch.stack([w[1] for w in batch])     # [B, T, 2]
+                    x0_batch = y_batch[:, 0, :]                      # [B, 2]
+
+                    optimizer.zero_grad()
+                    loss = trajectory_loss_batched(model, x0_batch, u_batch, y_batch,
+                                                   normalizer, lambda_ripple=lambda_ripple)
+
+                    if has_jacobian and lambda_J > 0 and n_windows % 5 == 0:
+                        loss_J = jacobian_loss(model, A_targets, x_ops, u_ops, normalizer)
+                        loss = loss + lambda_J * loss_J
+
+                    if torch.isnan(loss) or torch.isinf(loss):
+                        continue
+
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    optimizer.step()
+                    epoch_loss += loss.item() * B
+                    n_windows += B
+            else:
+                # ── Individual window path (proven, default) ──
+                for u_win, y_win in all_windows:
                     x0 = y_win[0]
 
                     optimizer.zero_grad()
                     loss = trajectory_loss(model, x0, u_win, y_win,
-                                           normalizer, lambda_ripple=lambda_ripple)
+                                           normalizer, lambda_ripple=lambda_ripple,
+                                           ode_func=ode_func)
 
                     if has_jacobian and lambda_J > 0 and n_windows % 5 == 0:
                         loss_J = jacobian_loss(model, A_targets, x_ops, u_ops, normalizer)
@@ -685,6 +865,8 @@ def run_single(seed, max_hours, is_test=False):
             n_windows = 0
             perm = np.random.permutation(n_train)
 
+            # Collect windows for this extended epoch
+            all_windows_ext = []
             for p_idx in perm:
                 u_p, y_p = train_u[p_idx], train_y[p_idx]
                 T = len(u_p)
@@ -693,18 +875,39 @@ def run_single(seed, max_hours, is_test=False):
                 if n_use == 0:
                     continue
                 win_starts = np.random.choice(n_win_total, n_use, replace=False)
-
                 for w in win_starts:
                     s = w * window_samples
                     e = min(s + window_samples, T)
-                    if e - s < 20:
+                    if e - s < window_samples:
                         continue
-                    u_win, y_win = u_p[s:e], y_p[s:e]
-                    x0 = y_win[0]
+                    all_windows_ext.append((u_p[s:s+window_samples], y_p[s:s+window_samples]))
+
+            np.random.shuffle(all_windows_ext)
+
+            if batch_size > 1 and solver == 'rk4':
+                for bi in range(0, len(all_windows_ext), batch_size):
+                    batch = all_windows_ext[bi:bi+batch_size]
+                    B = len(batch)
+                    u_batch = torch.stack([w[0] for w in batch])
+                    y_batch = torch.stack([w[1] for w in batch])
+                    x0_batch = y_batch[:, 0, :]
 
                     optimizer.zero_grad()
+                    loss = trajectory_loss_batched(model, x0_batch, u_batch, y_batch,
+                                                   normalizer, lambda_ripple=lambda_ripple)
+                    if torch.isnan(loss) or torch.isinf(loss):
+                        continue
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    optimizer.step()
+                    epoch_loss += loss.item() * B
+            else:
+                for u_win, y_win in all_windows_ext:
+                    x0 = y_win[0]
+                    optimizer.zero_grad()
                     loss = trajectory_loss(model, x0, u_win, y_win,
-                                           normalizer, lambda_ripple=lambda_ripple)
+                                           normalizer, lambda_ripple=lambda_ripple,
+                                           ode_func=ode_func)
                     if torch.isnan(loss) or torch.isinf(loss):
                         continue
                     loss.backward()
@@ -807,6 +1010,8 @@ def run_single(seed, max_hours, is_test=False):
         'extended': {'lr': 2e-4, 'lr_min': 1e-6, 'plateau_evals': 30,
                      'progressive_windows': [20, 40, 80]},
         'step_skip': STEP_SKIP, 'ts': TS, 'hidden': HIDDEN,
+        'solver': solver,
+        'batch_size': batch_size,
         'init_from_linear': has_jacobian,
         'val_profiles': [i+1 for i in VAL_INDICES],  # 1-based for readability
         'max_hours': max_hours,
@@ -825,13 +1030,32 @@ def run_single(seed, max_hours, is_test=False):
     seed_log_path = CHECKPOINT_BASE / 'seed_log.json'
     append_seed_log(seed, config, results, seed_log_path)
 
+    # Update global_best.pt if this run is the best so far (safe for parallel runs)
+    import fcntl
+    lock_path = str(CHECKPOINT_BASE / 'global_best.lock')
+    with open(lock_path, 'w') as lock_f:
+        fcntl.flock(lock_f, fcntl.LOCK_EX)
+        global_best_path = CHECKPOINT_BASE / 'global_best.pt'
+        update = True
+        if global_best_path.exists():
+            prev = torch.load(str(global_best_path), weights_only=False)
+            if prev.get('best_val_loss', float('inf')) <= best_val_loss:
+                update = False
+        if update:
+            import shutil
+            src = run_dir / 'best.pt'
+            if src.exists():
+                shutil.copy2(str(src), str(global_best_path))
+                log(f"  >>> GLOBAL BEST updated: seed={seed}, val={best_val_loss:.6f}")
+        fcntl.flock(lock_f, fcntl.LOCK_UN)
+
     return best_val_loss, best_state, stats, results
 
 
 # ============================================================
 # Multi-run
 # ============================================================
-def run_multi(n_runs, max_hours_per_run):
+def run_multi(n_runs, max_hours_per_run, solver='rk4', batch_size=1):
     """Run N training runs with seeds 1..N, track global best."""
     global _log_file
     _log_file = SCRIPT_DIR / 'training_multi.log'
@@ -852,7 +1076,7 @@ def run_multi(n_runs, max_hours_per_run):
         log(f"Starting run {run_idx}/{n_runs} (seed={seed})")
         log(f"{'=' * 60}")
 
-        best_val, best_state, stats, results = run_single(seed, max_hours_per_run)
+        best_val, best_state, stats, results = run_single(seed, max_hours_per_run, solver=solver, batch_size=batch_size)
         leaderboard.append((seed, best_val, results))
 
         # Update global best
@@ -895,21 +1119,26 @@ def main():
                         help='Random seed (default: 1)')
     parser.add_argument('--multi', type=int, default=0,
                         help='Run N sequential training runs with seeds 1..N')
-    parser.add_argument('--max_hours', type=float, default=8.0,
-                        help='Max hours per run (default: 8.0)')
+    parser.add_argument('--max_hours', type=float, default=10.0,
+                        help='Max hours per run (default: 10.0)')
     parser.add_argument('--test', action='store_true',
                         help='Quick smoke test (5 epochs)')
+    parser.add_argument('--solver', choices=['rk4', 'adjoint'], default='rk4',
+                        help='ODE solver: rk4 (fixed-step, default) or adjoint (torchdiffeq adaptive)')
+    parser.add_argument('--batch_size', type=int, default=1,
+                        help='Mini-batch size for RK4 training. 1=individual windows (default, proven). '
+                             '>1=batched RK4 (faster, fewer gradient updates per epoch)')
     args = parser.parse_args()
 
     CHECKPOINT_BASE.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.test:
-        run_single(seed=0, max_hours=1.0, is_test=True)
+        run_single(seed=0, max_hours=1.0, is_test=True, solver=args.solver, batch_size=args.batch_size)
     elif args.multi > 0:
-        run_multi(args.multi, args.max_hours)
+        run_multi(args.multi, args.max_hours, solver=args.solver, batch_size=args.batch_size)
     else:
-        run_single(args.seed, args.max_hours)
+        run_single(args.seed, args.max_hours, solver=args.solver, batch_size=args.batch_size)
 
 
 if __name__ == '__main__':
