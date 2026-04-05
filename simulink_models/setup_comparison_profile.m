@@ -189,12 +189,36 @@ end
 save_system(nssModel, nssFile);
 fprintf('  %s configured: StopTime=%.3fs\n', nssModel, stopTime);
 
-%% 7. Open all four models
+%% 7. Configure MLP V2 (seed 3) model
+fprintf('\n=== Configuring MLP V2 Seed 3 model ===\n');
+mlpV2 = 'boost_rom_mlp_v2_seed3';
+mlpV2File = fullfile(simulinkDir, [mlpV2 '.slx']);
+if bdIsLoaded(mlpV2), close_system(mlpV2, 0); end
+load_system(mlpV2File);
+set_param(mlpV2, 'StopTime', num2str(stopTime));
+fwsBlks = find_system(mlpV2, 'SearchDepth', 2, 'BlockType', 'FromWorkspace');
+if ~isempty(fwsBlks), set_param(fwsBlks{1}, 'VariableName', 'duty_input'); end
+save_system(mlpV2, mlpV2File);
+fprintf('  %s configured\n', mlpV2);
+
+%% 8. Configure LPV (seed 7) model
+fprintf('\n=== Configuring LPV Seed 7 model ===\n');
+lpvModel = 'boost_rom_lpv_seed7';
+lpvFile = fullfile(simulinkDir, [lpvModel '.slx']);
+if bdIsLoaded(lpvModel), close_system(lpvModel, 0); end
+load_system(lpvFile);
+set_param(lpvModel, 'StopTime', num2str(stopTime));
+fwsBlks = find_system(lpvModel, 'SearchDepth', 2, 'BlockType', 'FromWorkspace');
+if ~isempty(fwsBlks), set_param(fwsBlks{1}, 'VariableName', 'duty_input'); end
+save_system(lpvModel, lpvFile);
+fprintf('  %s configured\n', lpvModel);
+
+%% 9. Open all models
 fprintf('\n=== Opening models for interactive simulation ===\n');
 open_system(simscapeModel);
-open_system(romPredict);
 open_system(romLayers);
-open_system(nssModel);
+open_system(mlpV2);
+open_system(lpvModel);
 
 % Open SDI
 fprintf('  Opening Simulation Data Inspector...\n');
@@ -202,9 +226,9 @@ Simulink.sdi.view;
 
 fprintf('\n=== Ready! ===\n');
 fprintf('  1. Simulate "%s" (Simscape reference)\n', simscapeModel);
-fprintf('  2. Simulate "%s" (Neural ODE - Predict block)\n', romPredict);
-fprintf('  3. Simulate "%s" (Neural ODE - Layer blocks)\n', romLayers);
-fprintf('  4. Simulate "%s" (Neural State Space - expert trained)\n', nssModel);
+fprintf('  2. Simulate "%s" (Original PyTorch Neural ODE)\n', romLayers);
+fprintf('  3. Simulate "%s" (MLP V2 - best of 10 seeds, Vout RMSE 0.036V)\n', mlpV2);
+fprintf('  4. Simulate "%s" (LPV - best of 10 seeds, Vout RMSE 0.019V)\n', lpvModel);
 fprintf('  5. Compare all signals in the Simulation Data Inspector\n');
 fprintf('  Duty profile: D=0.20-0.70, staircase up/down (10%% steps) + big transients\n');
 
