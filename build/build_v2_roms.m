@@ -319,7 +319,7 @@ function buildROMModel_LPV(modelName, simulinkDir, Ts, nx, romDataFile, ...
         '% raw: 8-element vector [A(4), B(2), c(2)]'
         '% x_n: 2-element normalized state'
         '% u_n: scalar normalized input'
-        'A = reshape(raw(1:4), [2, 2]);'
+        'A = reshape(raw(1:4), [2, 2])'';  % transpose: PyTorch row-major -> MATLAB col-major'
         'B = reshape(raw(5:6), [2, 1]);'
         'c = raw(7:8);'
         'dxdt_n = A * x_n + B * u_n + c;'
@@ -463,4 +463,9 @@ function buildTopLevel(modelName, romDataFile, Tsw, Ts_ripple)
         'DataLoggingName', 'Vout', 'DataLoggingNameMode', 'Custom');
     set_param(ph_vout.Outport(2), 'DataLogging', 'on', ...
         'DataLoggingName', 'iL_avg', 'DataLoggingNameMode', 'Custom');
+
+    % iL with ripple reconstruction
+    ph_ripple = get_param([modelName '/RippleRecon'], 'PortHandles');
+    set_param(ph_ripple.Outport(1), 'DataLogging', 'on', ...
+        'DataLoggingName', 'iL_ripple', 'DataLoggingNameMode', 'Custom');
 end

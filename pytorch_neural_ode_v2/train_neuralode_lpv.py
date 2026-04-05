@@ -65,8 +65,7 @@ F_RES = 600
 F_SW = 200e3
 FILTER_CUTOFF = np.sqrt(F_RES * F_SW)
 
-torch.set_num_threads(1)
-torch.set_num_interop_threads(1)
+# Thread pinning moved to main() to avoid conflicts when imported
 
 # ============================================================
 # Logging
@@ -787,6 +786,8 @@ def run_multi(n_runs, max_hours_per_run):
 # CLI
 # ============================================================
 def main():
+    torch.set_num_threads(1)
+    torch.set_num_interop_threads(1)
     parser = argparse.ArgumentParser(description='LPV Neural ODE training')
     parser.add_argument('--seed', type=int, default=1)
     parser.add_argument('--multi', type=int, default=0)

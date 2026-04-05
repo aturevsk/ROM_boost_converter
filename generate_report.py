@@ -912,10 +912,144 @@ def build_report():
     )
 
     # ================================================================
-    # 6. DEPLOYMENT
+    # 5.6 WEEKEND TRAINING: IMPROVED PyTorch NEURAL ODE
     # ================================================================
     pdf.add_page()
-    pdf.chapter_title('6. PyTorch to Simulink Deployment')
+    pdf.chapter_title('5.6 Improved PyTorch Training (Weekend Run)')
+
+    pdf.section_title('Combined Training Script')
+    pdf.body(
+        'The two original PyTorch scripts (train_neural_ode_pytorch.py for 3-phase curriculum '
+        'and train_extended.py for ReduceLROnPlateau fine-tuning) were merged into a single '
+        'self-contained script: pytorch_neural_ode_v2/train_neuralode_full.py.\n\n'
+        'Key improvements over the original:\n\n'
+        '  1. Deterministic seeding (torch.manual_seed + np.random.seed) for reproducibility\n'
+        '  2. Physics-informed initialization: first layer initialized from 12 Branch B '
+        'A-matrices at different duty cycle operating points (was defined but never called)\n'
+        '  3. Full-profile RMSE logged alongside windowed val loss during training\n'
+        '  4. Progressive window growth in extended phase (20ms -> 40ms -> 80ms)\n'
+        '  5. Multi-run support: --multi N runs N seeds back-to-back, --seed for parallel runs\n'
+        '  6. All seeds, configs, and results saved to seed_log.json for reproduction\n'
+        '  7. Per-run checkpoints (best, latest, per-phase) in separate run folders\n'
+        '  8. torch.set_num_threads(1) for efficient parallel execution on M4 Max (10 P-cores)'
+    )
+
+    pdf.section_title('Training/Validation Data Split')
+    pdf.body(
+        'The validation split was changed from the last 3 profiles (16-18, D=0.55-0.75) to '
+        'mid-range profiles that test interpolation rather than extrapolation:\n\n'
+        '  Val 5  (D=0.25-0.65): wide-range transients\n'
+        '  Val 12 (D=0.35-0.45): narrow-band mid-low\n'
+        '  Val 14 (D=0.45-0.55): narrow-band mid-high\n\n'
+        'Edge profiles (7, 8, 17, 18) remain in training so the model sees the full range. '
+        'Validation loss is now a clean measure of model quality, not contaminated by '
+        'extrapolation error at high duty cycles.'
+    )
+
+    pdf.section_title('MLP Architecture: 10 Parallel Runs')
+    pdf.body(
+        'Ten training runs launched in parallel (seeds 1-10), each on its own CPU core '
+        '(M4 Max has 10 performance cores). Same MLP architecture [3->64->tanh->64->tanh->2], '
+        'RK4 integration at dt=50us, 3-phase curriculum + extended fine-tuning. '
+        'Max 10 hours per run.\n\n'
+        'Epoch times: Phase 1 ~1.5s (5ms windows), Phase 2/3 ~9s (20ms windows). '
+        'Total ~10h per run, all 10 completing in ~10h wall time.\n\n'
+        'Best result: seed 3 with full-profile Vout RMSE 0.036V, iL RMSE 0.169A. '
+        'All 10 seeds outperformed the original single-run result (0.163V Vout RMSE). '
+        'The physics-informed initialization and better validation split contributed to the '
+        '4.5x improvement.'
+    )
+
+    pdf.subsection_title('Adjoint Solver Experiment')
+    pdf.body(
+        'Ten runs with torchdiffeq odeint_adjoint (adaptive Dormand-Prince + adjoint gradients) '
+        'were tested (seeds 11-20). Epoch time was ~21s vs ~1.5s for RK4 (14x slower). '
+        'Best full-profile Vout RMSE was 0.202V after 5 hours -- 5.6x worse than RK4 MLP. '
+        'The adaptive solver created a train-deploy mismatch: the model learned dynamics '
+        'specific to adaptive stepping that did not transfer to fixed-step Euler deployment. '
+        'Runs were killed early as the approach was clearly inferior.'
+    )
+
+    pdf.subsection_title('Mini-Batch Experiment')
+    pdf.body(
+        'Ten runs with batch_size=8 (seeds 21-30) were tested. Epoch time dropped to ~0.2-4s '
+        '(5-20x faster), but accuracy was worse: best Vout RMSE 0.118V after 5 hours vs '
+        '0.036V for individual-window training. The reduced stochastic noise from batching '
+        'prevented the model from escaping local minima. '
+        'Individual per-window SGD updates are important for this problem.'
+    )
+
+    pdf.section_title('LPV Architecture: dx/dt = A(x,u)*x + B(x,u)*u + c(x,u)')
+    pdf.body(
+        'A new LPV (Linear Parameter-Varying) architecture was developed that enforces '
+        'state-dependent linear structure matching boost converter physics.\n\n'
+        'Instead of a generic MLP mapping [x,u] -> dxdt, the network outputs gain-scheduled '
+        'matrices: a small MLP maps [x_n, u_n] -> [A(2x2), B(2x1), c(2x1)] (8 outputs), '
+        'then computes dx/dt = dxdt_scale * (A*x_n + B*u_n + c).\n\n'
+        'Advantages:\n'
+        '  1. Correct bilinear structure at every operating point (matching physics)\n'
+        '  2. Initialization: 48 of 64 first-layer neurons set from 12 Branch B A-matrices\n'
+        '  3. Jacobian loss directly compares A-network output to known A-matrices\n'
+        '  4. More stable gradients through RK4 chain (structured derivatives)\n\n'
+        'Script: pytorch_neural_ode_v2/train_neuralode_lpv.py\n'
+        'Parameters: 4,936 (vs 4,546 for MLP) due to 8 outputs instead of 2.'
+    )
+
+    pdf.body(
+        'Ten parallel LPV runs (seeds 1-10, 10 hours max) were launched. The LPV architecture '
+        'converged dramatically faster than MLP: after just 1.7 hours, every seed already '
+        'matched or beat the MLP best (10-hour result). All runs completed in 6-7 hours.\n\n'
+        'Best result: seed 7 with full-profile Vout RMSE 0.019V, iL RMSE 0.126A. '
+        'Seed 10 achieved the best iL at 0.122A. Continuation training with 80ms windows '
+        'on seeds 7 and 10 did not improve further -- the models had converged.'
+    )
+
+    pdf.subsection_title('Head-to-Head Results')
+    pdf.add_table(
+        ['Model', 'Architecture', 'Vout RMSE', 'iL RMSE', 'Train Time', 'Sim Speed'],
+        [
+            ['LPV seed 7', 'A(x,u)*x+B(x,u)*u+c', '0.019 V', '0.126 A', '7h', '57x'],
+            ['MLP V2 seed 3', 'MLP [3->64->64->2]', '0.036 V', '0.169 A', '10h', '58x'],
+            ['Original PyTorch', 'MLP [3->64->64->2]', '0.163 V', '0.673 A', '7.7h', '48x'],
+            ['MATLAB DLT V3', 'MLP (MATLAB DLT)', '0.342 V', '2.099 A', '3.4h', '---'],
+            ['MATLAB NSS', 'nlssest', '1.833 V', '8.212 A', '8h', '120x'],
+        ],
+        col_widths=[35, 45, 25, 25, 22, 22]
+    )
+
+    pdf.add_image_if_exists(RESULTS / 'all_models_comparison.png', w=170)
+
+    pdf.key_insight(
+        'The LPV architecture (dx/dt = A(x,u)*x + B(x,u)*u + c) achieves 8.6x better Vout '
+        'accuracy than the original PyTorch MLP while training faster (7h vs 10h) and running '
+        'at the same simulation speed (57x vs Simscape). Physics-informed architecture + '
+        'initialization from Branch B linear models + multiple seeds with deterministic '
+        'reproducibility were the key factors.'
+    )
+
+    pdf.section_title('Simulink Deployment')
+    pdf.body(
+        'Both best models were deployed to Simulink using the same pipeline as the original:\n\n'
+        '  1. Export weights from PyTorch checkpoint to .mat and TorchScript .pt\n'
+        '  2. Build dlnetwork in MATLAB with featureInputLayer + named layers\n'
+        '  3. exportNetworkToSimulink for layer blocks\n'
+        '  4. Build ROM subsystem: [Normalize] -> [MLP] -> [Scale+Euler] -> state\n'
+        '  5. LPV variant adds: [MLP 8-out] -> [Reshape A,B,c] -> [A*x+B*u+c] -> [Scale+Euler]\n\n'
+        'Models:\n'
+        '  boost_rom_mlp_v2_seed3.slx -- MLP V2, best of 10 seeds\n'
+        '  boost_rom_lpv_seed7.slx -- LPV, best of 10 seeds\n\n'
+        'Both use From Workspace duty input for the staircase comparison profile '
+        '(D=0.20-0.70) and include empirical ripple reconstruction.\n\n'
+        'Note: For the LPV Simulink model, the A-matrix reshape includes a transpose '
+        'to convert from PyTorch row-major to MATLAB column-major layout.\n\n'
+        'Build script: build/build_v2_roms.m'
+    )
+
+    # ================================================================
+    # 6. DEPLOYMENT (renumber to 7)
+    # ================================================================
+    pdf.add_page()
+    pdf.chapter_title('7. PyTorch to Simulink Deployment (Original)')
 
     pdf.section_title('Pipeline')
     pdf.body(
@@ -978,7 +1112,7 @@ def build_report():
     # 7. COMPARISON & TIMING RESULTS
     # ================================================================
     pdf.add_page()
-    pdf.chapter_title('7. Comparison & Timing Results')
+    pdf.chapter_title('8. Comparison & Timing Results')
 
     pdf.section_title('Simulation Speed')
     pdf.body(
@@ -1040,15 +1174,30 @@ def build_report():
     # 8. FILE LISTING
     # ================================================================
     pdf.add_page()
-    pdf.chapter_title('8. Repository File Listing')
+    pdf.chapter_title('9. Repository File Listing')
 
-    pdf.section_title('pytorch_neural_ode/')
+    pdf.section_title('pytorch_neural_ode/ (original)')
     pdf.add_table(
         ['File', 'Description'],
         [
-            ['train_neural_ode_pytorch.py', 'Main 3-phase curriculum training (NeuralODE + custom loss)'],
-            ['train_extended.py', '8-hour extended fine-tuning with plateau detection'],
+            ['train_neural_ode_pytorch.py', 'Original 3-phase curriculum training'],
+            ['train_extended.py', 'Extended fine-tuning with ReduceLROnPlateau'],
             ['export_neuralode_weights.py', 'Export checkpoint to JSON + MAT + TorchScript'],
+        ],
+        col_widths=[60, 120]
+    )
+
+    pdf.section_title('pytorch_neural_ode_v2/ (weekend improvements)')
+    pdf.add_table(
+        ['File', 'Description'],
+        [
+            ['train_neuralode_full.py', 'Combined MLP training: 3-phase + extended, multi-seed, physics init'],
+            ['train_neuralode_lpv.py', 'LPV architecture: dx/dt=A(x,u)*x+B(x,u)*u+c, multi-seed'],
+            ['continue_lpv.py', 'Continue LPV from checkpoint with 80ms+ windows'],
+            ['checkpoints/seed_log.json', 'All MLP run results: seeds, configs, RMSE (reproducibility)'],
+            ['checkpoints/run_NNNN/best.pt', 'Best model per seed (MLP runs)'],
+            ['checkpoints_lpv/seed_log.json', 'All LPV run results'],
+            ['checkpoints_lpv/run_NNNN/best.pt', 'Best model per seed (LPV runs)'],
         ],
         col_widths=[60, 120]
     )
@@ -1058,12 +1207,10 @@ def build_report():
         ['File', 'Description'],
         [
             ['train_neural_ss_normalized.m', 'NSS: CT with output-scaled init (val=0.137)'],
-            ['train_nss_fixed.m', 'NSS: DT fix attempt with skip connection + 3-phase'],
             ['train_nss_expert.m', 'NSS: NumWindowFraction=eps (val=0.130)'],
             ['train_dlt_neural_ode.m', 'DLT V1: Custom RK4 + direct backprop (Vout 0.387V)'],
-            ['train_dlt_neural_ode_v2.m', 'DLT V2: dlode45 adjoint + cosine LR (Vout 1.41V)'],
             ['train_dlt_neural_ode_v3.m', 'DLT V3: RK4 + cosine LR (Vout 0.342V, best MATLAB)'],
-            ['compare_all_five.m', 'Head-to-head comparison of all 5 models'],
+            ['compare_all_five.m', 'Head-to-head comparison of all models'],
         ],
         col_widths=[60, 120]
     )
@@ -1073,10 +1220,11 @@ def build_report():
         ['File', 'Description'],
         [
             ['boost_converter_test_harness.slx', 'Simscape open-loop reference model'],
-            ['boost_openloop_branch_c_layers.slx', 'PyTorch ROM via Simulink layer blocks'],
-            ['boost_openloop_branch_c_predict.slx', 'PyTorch ROM via Deep Learning Predict block'],
-            ['boost_openloop_nss.slx', 'MATLAB NSS ROM via Neural State Space block'],
-            ['setup_comparison_profile.m', 'Configures all models with same duty profile'],
+            ['boost_openloop_branch_c_layers.slx', 'Original PyTorch ROM (Vout RMSE 0.163V, 48x)'],
+            ['boost_rom_mlp_v2_seed3.slx', 'MLP V2 ROM seed 3 (Vout RMSE 0.036V, 58x)'],
+            ['boost_rom_lpv_seed7.slx', 'LPV ROM seed 7 (Vout RMSE 0.019V, 57x)'],
+            ['boost_openloop_nss.slx', 'MATLAB NSS ROM'],
+            ['setup_comparison_profile.m', 'Opens all models with staircase duty profile'],
         ],
         col_widths=[70, 110]
     )
@@ -1085,15 +1233,24 @@ def build_report():
     pdf.add_table(
         ['File', 'Description'],
         [
-            ['extended_best.pt', 'Best PyTorch checkpoint (val loss=0.040, 2500 epochs)'],
-            ['neuralode_weights.mat', 'MLP weights for Simulink deployment'],
-            ['neuralode_dlnetwork.mat', 'MATLAB dlnetwork object (imported from PyTorch)'],
-            ['neuralode_norm_stats.json', 'Normalization statistics (means, stds, dxdt_scale)'],
-            ['boost_branch_c_data.mat', 'ROM data: normalization + ripple lookup tables'],
-            ['boost_nss_normalized.mat', 'MATLAB NSS baseline model (val loss=0.137)'],
-            ['boost_nss_expert.mat', 'Expert NSS model, NumWindowFraction=eps (val loss=0.130)'],
-            ['comparison_duty_profile.mat', 'Staircase duty profile timeseries'],
+            ['mlp_v2_seed3_weights.mat', 'MLP V2 seed 3 weights (best MLP, Vout 0.036V)'],
+            ['lpv_seed7_weights.mat', 'LPV seed 7 weights (best overall, Vout 0.019V)'],
+            ['mlp_v2_seed3_norm_stats.json', 'Normalization for MLP V2'],
+            ['lpv_seed7_norm_stats.json', 'Normalization for LPV'],
+            ['neuralode_weights.mat', 'Original PyTorch MLP weights'],
+            ['neuralode_norm_stats.json', 'Original normalization statistics'],
+            ['comparison_duty_profile.mat', 'Staircase duty profile (D=0.20-0.70)'],
             ['ripple_empirical_data.mat', 'Empirical ripple amplitude vs duty cycle'],
+        ],
+        col_widths=[60, 120]
+    )
+
+    pdf.section_title('build/')
+    pdf.add_table(
+        ['File', 'Description'],
+        [
+            ['build_branch_c_rom.m', 'Build original PyTorch Simulink ROMs'],
+            ['build_v2_roms.m', 'Build MLP V2 + LPV Simulink ROMs (weekend models)'],
         ],
         col_widths=[60, 120]
     )
