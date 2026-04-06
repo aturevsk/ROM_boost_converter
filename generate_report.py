@@ -816,99 +816,44 @@ def build_report():
     # 5.5 DLT CUSTOM TRAINING LOOP
     # ================================================================
     pdf.add_page()
-    pdf.section_title('5.5 DLT Custom Training Loop (V1/V2/V3)')
+    pdf.section_title('5.5 First MATLAB DLT Attempt (Matching Original PyTorch)')
 
     pdf.body(
-        'To close the gap with PyTorch, we bypassed nlssest entirely and built a custom '
-        'training loop using Deep Learning Toolbox (dlfeval, dlgradient, adamupdate). '
-        'This allowed replicating the PyTorch training pipeline component by component: '
-        'same MLP [3->64->tanh->64->tanh->2], same RK4 integrator (dt=50us), same custom '
-        'loss (LP/HP filtered MSE + Jacobian matching), same 3-phase curriculum, same Adam '
-        'optimizer with gradient clipping. Three variants were tested:'
+        'Goal: match the original PyTorch result (Vout RMSE 0.163V) using MATLAB Deep Learning '
+        'Toolbox custom training loop (dlfeval, dlgradient, adamupdate). Same MLP architecture, '
+        'same RK4 integrator, same custom loss. Three approaches were tried, each adding one '
+        'more feature from PyTorch:'
     )
 
-    pdf.subsection_title('V1: Manual RK4 + Constant LR')
-    pdf.body(
-        'Exact replication of PyTorch training: manual RK4 integration at dt=50us with direct '
-        'backpropagation through the unrolled loop via dlgradient. dlaccelerate used for JIT '
-        'compilation. Only difference from PyTorch: no LR schedule (constant per phase).\n\n'
-        'Script: matlab_neural_ss/train_dlt_neural_ode.m'
-    )
-
-    pdf.subsection_title('V2: dlode45 Adjoint + Cosine LR')
-    pdf.body(
-        'Hypothesis: gradient degradation through 400 unrolled RK4 steps limits 20ms window '
-        'accuracy. Fix: replace manual RK4 with dlode45(GradientMode="adjoint") which computes '
-        'gradients via a reverse-time ODE (no gradient chain). Also added cosine annealing LR '
-        'matching PyTorch CosineAnnealingLR.\n\n'
-        'Result: windowed val loss was excellent (0.0008) but full-profile accuracy was WORST '
-        'of all DLT variants (1.41V Vout RMSE). The adaptive ode45 solver created a '
-        'train-deploy mismatch -- the model learned dynamics specific to adaptive stepping '
-        'that do not transfer to fixed-step RK4 deployment.\n\n'
-        'Script: matlab_neural_ss/train_dlt_neural_ode_v2.m'
-    )
-
-    pdf.subsection_title('V3: Manual RK4 + Cosine LR')
-    pdf.body(
-        'V1 approach (proven RK4) plus cosine LR schedule (the one feature V1 was missing vs '
-        'PyTorch). This isolated the LR schedule as a variable.\n\n'
-        'Result: marginal improvement over V1 (0.342V vs 0.387V Vout RMSE). Cosine LR provides '
-        '~10%% improvement but is not the primary factor explaining the gap with PyTorch.\n\n'
-        'Script: matlab_neural_ss/train_dlt_neural_ode_v3.m'
-    )
-
-    pdf.subsection_title('Head-to-Head Results (Full-Profile Free-Running)')
     pdf.add_table(
-        ['Model', 'Vout RMSE', 'iL RMSE', 'Training Time'],
+        ['Approach', 'What Was Added', 'Vout RMSE', 'Script'],
         [
-            ['PyTorch Neural ODE', '0.163 V', '0.673 A', '7.7 h'],
-            ['DLT V3 (RK4 + cosine LR)', '0.342 V', '2.099 A', '3.4 h'],
-            ['DLT V1 (RK4, constant LR)', '0.387 V', '2.233 A', '4.5 h'],
-            ['DLT V2 (dlode45 adjoint)', '1.410 V', '2.928 A', '0.8 h'],
-            ['NSS expert (nlssest)', '1.833 V', '8.212 A', '8 h'],
+            ['RK4 + constant LR', 'Baseline DLT replication', '0.387 V', 'train_dlt_neural_ode.m'],
+            ['dlode45 adjoint + cosine LR', 'Adjoint gradients (backfired)', '1.410 V', 'train_dlt_neural_ode_v2.m'],
+            ['RK4 + cosine LR', 'Added LR schedule', '0.342 V', 'train_dlt_neural_ode_v3.m'],
         ],
-        col_widths=[52, 30, 30, 30]
+        col_widths=[45, 50, 25, 60]
+    )
+
+    pdf.body(
+        'Best result: 0.342V Vout RMSE (RK4 + cosine LR), still 2x worse than PyTorch (0.163V). '
+        'The adjoint method (dlode45) caused solver mismatch: model learned dynamics specific '
+        'to the adaptive solver that did not transfer to fixed-step deployment. '
+        'The remaining gap was attributed to 6 missing features identified by comparing the '
+        'MATLAB and PyTorch scripts line by line (see Section 5.7 for the second attempt '
+        'that addressed all 6 gaps).\n\n'
+        'Key finding: MATLAB DLT trains 3-10x faster per epoch than PyTorch for Phase 1 '
+        '(dlaccelerate JIT), but the dlaccelerate retracing causes variable epoch times '
+        '(6s to 240s) for longer windows.'
     )
 
     pdf.add_image_if_exists(RESULTS / 'all_models_comparison.png', w=170)
 
     pdf.key_insight(
-        'The DLT custom training loop is 4-5x better than nlssest and trains faster than '
-        'PyTorch (3.4h vs 7.7h, with Phase 1 running 15-37x faster via dlaccelerate). '
-        'However, a 2x accuracy gap vs PyTorch remains even after matching all training '
-        'components exactly. The adjoint method (V2) backfired due to solver mismatch. '
-        'Cosine LR (V3) helped only marginally. The remaining gap is likely in autograd '
-        'numerical differences between PyTorch and MATLAB dlgradient for long computation chains.'
-    )
-
-    pdf.subsection_title('What Was Matched vs PyTorch')
-    pdf.add_table(
-        ['Component', 'Matched?'],
-        [
-            ['MLP architecture [3->64->tanh->64->tanh->2]', 'Yes'],
-            ['RK4 integrator (dt=50us, step_skip=10)', 'Yes'],
-            ['Custom loss (LP/HP filtered MSE)', 'Yes'],
-            ['Jacobian matching loss', 'Yes'],
-            ['3-phase curriculum (5ms/20ms windows)', 'Yes'],
-            ['Adam optimizer + gradient clipping', 'Yes'],
-            ['Cosine annealing LR (V3)', 'Yes'],
-            ['Normalization (same JSON stats)', 'Yes'],
-            ['Train/val split (15/3 profiles)', 'Yes'],
-        ],
-        col_widths=[80, 20]
-    )
-
-    pdf.subsection_title('Lessons Learned')
-    pdf.body(
-        '1. Custom training loops in MATLAB DLT are viable and can be faster than PyTorch '
-        'for small models, thanks to dlaccelerate JIT compilation.\n\n'
-        '2. The solver used during training must match deployment. dlode45 adjoint gives '
-        'excellent windowed accuracy but the model does not transfer to fixed-step RK4.\n\n'
-        '3. nlssest is fundamentally limited by its lack of custom loss functions and '
-        'free-running integration during training. A custom loop with the same MLP is 4-5x better.\n\n'
-        '4. A ~2x accuracy gap between MATLAB DLT and PyTorch persists even with identical '
-        'training configurations. This warrants further investigation into autograd numerical '
-        'differences for long backpropagation chains.'
+        'nlssest (NSS) is fundamentally limited (no custom loss, no free-running training). '
+        'A DLT custom training loop with the same MLP is 4-5x better (0.342V vs 1.833V). '
+        'But matching PyTorch requires more than just the same architecture and loss -- '
+        'initialization, val split, LR schedule, extended training, and window shuffling all matter.'
     )
 
     # ================================================================
@@ -1046,7 +991,99 @@ def build_report():
     )
 
     # ================================================================
-    # 6. DEPLOYMENT (renumber to 7)
+    # 5.7 SECOND MATLAB DLT ATTEMPT (Replicating Weekend PyTorch MLP)
+    # ================================================================
+    pdf.add_page()
+    pdf.section_title('5.7 Second MATLAB DLT Attempt (Replicating Weekend PyTorch)')
+
+    pdf.body(
+        'After the weekend PyTorch training achieved Vout RMSE 0.036V (MLP seed 3), we '
+        'performed a line-by-line comparison of the MATLAB DLT and PyTorch scripts to identify '
+        'all differences. Six gaps were found and fixed in a new MATLAB script:'
+    )
+
+    pdf.add_table(
+        ['Gap', 'First DLT Attempt', 'Fixed in Second Attempt'],
+        [
+            ['Weight initialization', 'Random (Glorot default)', 'Physics-informed from 12 Branch B A-matrices'],
+            ['Validation split', 'Last 3 profiles (extrapolation)', 'Profiles 5,12,14 (mid-range interpolation)'],
+            ['LR schedule', 'Constant per phase', 'CosineAnnealingLR (lr -> 0.01*lr per phase)'],
+            ['Extended training', 'None (stopped after Phase 3)', 'Phase 4: ReduceLROnPlateau + progressive windows'],
+            ['Window shuffling', 'Profile-by-profile', 'Global shuffle all windows per epoch'],
+            ['Norm stats', 'Pre-computed from all data', 'Computed from training profiles only'],
+        ],
+        col_widths=[35, 55, 90]
+    )
+
+    pdf.subsection_title('Scripts')
+    pdf.body(
+        'PyTorch reference: pytorch_neural_ode_v2/train_neuralode_full.py (seed 3)\n'
+        'MATLAB replication: matlab_dlt_v2/train_mlp_rk4.m (seed 3)\n\n'
+        'Both scripts use identical: MLP architecture [3->64->tanh->64->tanh->2], RK4 at '
+        'dt=50us, 3-phase curriculum + Phase 4 extended with progressive windows (20->40->80ms), '
+        'CosineAnnealingLR, per-window gradient updates, gradient clipping at 1.0, same seed (3).'
+    )
+
+    pdf.subsection_title('Results')
+    pdf.add_table(
+        ['Model', 'Vout RMSE', 'iL RMSE', 'Training Time'],
+        [
+            ['PyTorch MLP seed 3', '0.036 V', '0.169 A', '10 h'],
+            ['MATLAB DLT MLP seed 3', '0.640 V', '1.831 A', '10 h (time limit)'],
+            ['First DLT attempt (best)', '0.342 V', '2.099 A', '3.4 h'],
+        ],
+        col_widths=[45, 30, 30, 40]
+    )
+
+    pdf.body(
+        'Despite fixing all 6 identified gaps, MATLAB DLT achieved 0.640V -- worse than the '
+        'first attempt (0.342V). The MLP architecture with RK4 direct backprop through 400+ '
+        'steps appears to be fundamentally limited by MATLAB dlgradient numerical precision '
+        'for long computation chains.\n\n'
+        'Key observations:\n'
+        '  - Phase 1 (5ms windows): MATLAB 2x faster per epoch (0.7s vs 1.5s)\n'
+        '  - Phase 2 (20ms windows): MATLAB variable epoch times (6-60s vs PyTorch steady 9s)\n'
+        '  - dlaccelerate causes retracing spikes when input sizes vary between windows\n'
+        '  - MLP val loss plateaued early; extended phase provided minimal improvement\n\n'
+        'Conclusion: for the MLP architecture, PyTorch autograd handles gradient propagation '
+        'through long RK4 chains significantly better than MATLAB dlgradient. The LPV '
+        'architecture (Section 5.7b) addresses this by providing structured derivatives '
+        'that are more stable through the RK4 chain.'
+    )
+
+    pdf.subsection_title('5.7b MATLAB DLT LPV Replication')
+
+    pdf.body(
+        'The LPV architecture dx/dt = A(x,u)*x + B(x,u)*u + c(x,u) was also replicated '
+        'in MATLAB DLT. The structured derivatives from A*x + B*u + c are more stable '
+        'through the RK4 backward pass than generic MLP outputs.\n\n'
+        'PyTorch reference: pytorch_neural_ode_v2/train_neuralode_lpv.py (seed 7)\n'
+        'MATLAB replication: matlab_dlt_v2/train_lpv_rk4.m (seed 7)\n\n'
+        'Training used the same 4-phase curriculum with CosineAnnealingLR. For the extended '
+        'phase, dlaccelerate was disabled for windows > 20ms to avoid retrace spikes '
+        '(6-hour spikes observed with dlaccelerate on 40ms windows vs 2.6 min without).'
+    )
+
+    pdf.add_table(
+        ['Model', 'Vout RMSE', 'iL RMSE', 'Training Time'],
+        [
+            ['PyTorch LPV seed 7', '0.019 V', '0.126 A', '7.1 h'],
+            ['MATLAB DLT LPV seed 7', '0.022 V', '0.081 A', '~19 h (still improving)'],
+        ],
+        col_widths=[45, 30, 30, 45]
+    )
+
+    pdf.key_insight(
+        'MATLAB DLT successfully replicates PyTorch accuracy with the LPV architecture: '
+        'Vout RMSE 0.022V (vs PyTorch 0.019V, within 15%%) and iL RMSE 0.081A (vs PyTorch '
+        '0.126A, 36%% better). The LPV structured form stabilizes gradients through the RK4 '
+        'chain, overcoming the autograd limitation that prevented the MLP architecture from '
+        'converging in MATLAB. Training takes longer (19h vs 7h) due to MATLAB framework '
+        'overhead, but the accuracy is equivalent or better.'
+    )
+
+    # ================================================================
+    # 7. DEPLOYMENT
     # ================================================================
     pdf.add_page()
     pdf.chapter_title('7. PyTorch to Simulink Deployment (Original)')
@@ -1208,9 +1245,21 @@ def build_report():
         [
             ['train_neural_ss_normalized.m', 'NSS: CT with output-scaled init (val=0.137)'],
             ['train_nss_expert.m', 'NSS: NumWindowFraction=eps (val=0.130)'],
-            ['train_dlt_neural_ode.m', 'DLT V1: Custom RK4 + direct backprop (Vout 0.387V)'],
-            ['train_dlt_neural_ode_v3.m', 'DLT V3: RK4 + cosine LR (Vout 0.342V, best MATLAB)'],
+            ['train_dlt_neural_ode.m', 'First DLT: RK4 + constant LR (Vout 0.387V)'],
+            ['train_dlt_neural_ode_v3.m', 'First DLT: RK4 + cosine LR (Vout 0.342V)'],
             ['compare_all_five.m', 'Head-to-head comparison of all models'],
+        ],
+        col_widths=[60, 120]
+    )
+
+    pdf.section_title('matlab_dlt_v2/ (second DLT attempt)')
+    pdf.add_table(
+        ['File', 'Description'],
+        [
+            ['train_mlp_rk4.m', 'MLP RK4: replicates PyTorch seed 3 with all 6 fixes (Vout 0.640V)'],
+            ['train_lpv_rk4.m', 'LPV RK4: replicates PyTorch seed 7 with all 6 fixes (Vout 0.022V)'],
+            ['resume_training.m', 'Resume from checkpoint: Phase 2/3/4 continuation'],
+            ['resume_lpv_noaccl.m', 'Resume LPV without dlaccelerate (for 40ms+ windows)'],
         ],
         col_widths=[60, 120]
     )
