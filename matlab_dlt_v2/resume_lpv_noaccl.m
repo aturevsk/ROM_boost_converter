@@ -54,7 +54,7 @@ tStart=tic; tLastCp=tic;
 
 while true
     epCnt=epCnt+1; totalEpochs=totalEpochs+1; tEp=tic;
-    if epCnt<=200, winMs=40; else, winMs=80; end
+    winMs=80;
     winSamp=round(winMs*1e-3/TS);
 
     allWin=collectWindows(train_u,train_y,nTrain,winSamp,3);

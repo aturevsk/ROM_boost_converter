@@ -1075,11 +1075,29 @@ def build_report():
 
     pdf.key_insight(
         'MATLAB DLT successfully replicates PyTorch accuracy with the LPV architecture: '
-        'Vout RMSE 0.022V (vs PyTorch 0.019V, within 15%%) and iL RMSE 0.081A (vs PyTorch '
-        '0.126A, 36%% better). The LPV structured form stabilizes gradients through the RK4 '
+        'Vout RMSE 0.022V (vs PyTorch 0.019V, within 15%%) and iL RMSE 0.077A (vs PyTorch '
+        '0.126A, 39%% better). The LPV structured form stabilizes gradients through the RK4 '
         'chain, overcoming the autograd limitation that prevented the MLP architecture from '
-        'converging in MATLAB. Training takes longer (19h vs 7h) due to MATLAB framework '
+        'converging in MATLAB. Training takes longer (~19h vs 7h) due to MATLAB framework '
         'overhead, but the accuracy is equivalent or better.'
+    )
+
+    pdf.subsection_title('DLT LPV Simulink Deployment')
+    pdf.body(
+        'The MATLAB DLT LPV best model was deployed to Simulink as boost_rom_dlt_lpv_seed7.slx '
+        'using the same pipeline as the PyTorch LPV model:\n\n'
+        '  1. Extract weights from DLT checkpoint (checkpoints_lpv/run_0007/best.mat)\n'
+        '  2. Build dlnetwork with featureInputLayer + named layers (3->64->tanh->64->tanh->8)\n'
+        '  3. exportNetworkToSimulink for layer blocks\n'
+        '  4. LPV ROM subsystem: [Normalize] -> [MLP 8-out] -> [A*x+B*u+c] -> [Euler] -> state\n'
+        '  5. A-matrix transpose in Simulink (PyTorch row-major -> MATLAB column-major)\n'
+        '  6. Ripple reconstruction via empirical iL lookup table\n\n'
+        'The model uses From Workspace duty input (same staircase profile as all other models), '
+        'logs Vout, iL_avg, and iL_ripple for SDI comparison.\n\n'
+        'All three LPV models can be compared side by side:\n'
+        '  - boost_converter_test_harness (Simscape reference)\n'
+        '  - boost_rom_lpv_seed7 (PyTorch LPV, Vout 0.019V)\n'
+        '  - boost_rom_dlt_lpv_seed7 (MATLAB DLT LPV, Vout 0.022V)'
     )
 
     # ================================================================
@@ -1271,7 +1289,8 @@ def build_report():
             ['boost_converter_test_harness.slx', 'Simscape open-loop reference model'],
             ['boost_openloop_branch_c_layers.slx', 'Original PyTorch ROM (Vout RMSE 0.163V, 48x)'],
             ['boost_rom_mlp_v2_seed3.slx', 'MLP V2 ROM seed 3 (Vout RMSE 0.036V, 58x)'],
-            ['boost_rom_lpv_seed7.slx', 'LPV ROM seed 7 (Vout RMSE 0.019V, 57x)'],
+            ['boost_rom_lpv_seed7.slx', 'PyTorch LPV ROM seed 7 (Vout RMSE 0.019V, 57x)'],
+            ['boost_rom_dlt_lpv_seed7.slx', 'MATLAB DLT LPV ROM seed 7 (Vout RMSE 0.022V)'],
             ['boost_openloop_nss.slx', 'MATLAB NSS ROM'],
             ['setup_comparison_profile.m', 'Opens all models with staircase duty profile'],
         ],
