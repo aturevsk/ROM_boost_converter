@@ -12,9 +12,24 @@ function train_lpv_rk4(seed, opts)
 %   train_lpv_rk4(7, 'maxHours', 10)
 %   train_lpv_rk4(0, 'test', true)
 
+%
+% Training pipeline (reproduces best result: Vout RMSE 0.019V, iL 0.067A):
+%   Phase 1: 300 ep, 5ms windows, CosineAnnealingLR, Jacobian loss
+%   Phase 2: 500 ep, 20ms windows, CosineAnnealingLR, ripple loss
+%   Phase 3: 200 ep, 20ms windows, CosineAnnealingLR, fine-tune
+%   Phase 4: Extended 20ms, ReduceLROnPlateau (LR=2e-4)
+%   Phase 5: Extended 40ms, ReduceLROnPlateau (LR=5e-5)
+%   Phase 6: Extended 80ms, ReduceLROnPlateau (LR=1e-4)
+%
+% dlaccelerate used for Phases 1-3 (short windows, fast).
+% Disabled for Phases 4-6 (long windows cause retrace spikes).
+%
+% Total training time: ~20-24h on MacBook Pro M4 Max.
+% Best model saved to checkpoints_lpv/run_NNNN/best.mat on every improvement.
+
 arguments
     seed (1,1) double = 7
-    opts.maxHours (1,1) double = 10
+    opts.maxHours (1,1) double = 24
     opts.test (1,1) logical = false
 end
 
@@ -187,32 +202,43 @@ for phIdx=1:numel(phases)
     if toc(tStart)/3600>=opts.maxHours, break; end
 end
 
-%% ── Phase 4: Extended ──────────────────────────────────────────────────────
-if ~opts.test && toc(tStart)/3600<opts.maxHours
-    fprintf('\n--- Phase4_Extended ---\n');
+%% ── Phases 4-6: Extended with progressive windows ──────────────────────────
+% NO dlaccelerate for these phases (avoids retrace spikes on long windows).
+% Phase 4: 20ms windows, LR=2e-4  (refine short-window dynamics)
+% Phase 5: 40ms windows, LR=5e-5  (longer horizon, lower LR)
+% Phase 6: 80ms windows, LR=1e-4  (longest horizon)
+extPhases = {
+    struct('name','Ext_20ms', 'winMs',20, 'lr',2e-4)
+    struct('name','Ext_40ms', 'winMs',40, 'lr',5e-5)
+    struct('name','Ext_80ms', 'winMs',80, 'lr',1e-4)
+};
+
+for epi = 1:numel(extPhases)
+    if opts.test || toc(tStart)/3600 >= opts.maxHours, break; end
+    ep = extPhases{epi};
+    fprintf('\n--- %s: win=%dms, LR=%.1e, ReduceLROnPlateau ---\n', ep.name, ep.winMs, ep.lr);
+
     if bestVal<inf, net=bestNet; end
-    clearCache(accLoss);
-    ext_lr=2e-4; ext_lr_min=1e-6;
-    avgG=[]; avgSqG=[]; phIter=0; noImpExt=0; curLR=ext_lr; patCount=0; epCnt=0;
+    winSamp=round(ep.winMs*1e-3/TS);
+    ext_lr_min=1e-6;
+    avgG=[]; avgSqG=[]; phIter=0; noImpExt=0; curLR=ep.lr; patCount=0; epCnt=0;
 
     while true
         epCnt=epCnt+1; totalEpochs=totalEpochs+1; tEp=tic;
-        if epCnt<=200, winMs=20; elseif epCnt<=400, winMs=40; else, winMs=80; end
-        winSamp=round(winMs*1e-3/TS);
-
         allWin=collectWindows(train_u,train_y,nTrain,winSamp,3);
         epochLoss=0; nWin=0;
         for w=1:size(allWin,1)
             phIter=phIter+1;
-            [loss,grads]=dlfeval(accLoss,net,dlarray(allWin{w,2}(1,:)'),dlarray(allWin{w,1}),dlarray(allWin{w,2}),ns,DT,SKIP,0.1,b_lp,a_lp,b_hp,a_hp);
+            % Direct dlfeval — no dlaccelerate (avoids retrace spikes)
+            [loss,grads]=dlfeval(@computeLPVLossAndGrad,net,dlarray(allWin{w,2}(1,:)'),dlarray(allWin{w,1}),dlarray(allWin{w,2}),ns,DT,SKIP,0.1,b_lp,a_lp,b_hp,a_hp);
             if isnan(extractdata(loss))||isinf(extractdata(loss)), continue; end
             grads=clipGrads(grads,GRAD_CLIP);
             [net,avgG,avgSqG]=adamupdate(net,grads,avgG,avgSqG,phIter,curLR);
             epochLoss=epochLoss+extractdata(loss); nWin=nWin+1;
         end
-        trainHist(end+1)=epochLoss/max(nWin,1); elapsed=toc(tStart)/3600; %#ok<AGROW>
-        if elapsed>=opts.maxHours, fprintf('  [Ext] Time limit\n'); break; end
-        if curLR<=ext_lr_min*1.01, fprintf('  [Ext] LR floor\n'); break; end
+        trainHist(end+1)=epochLoss/max(nWin,1); elapsed=toc(tStart)/3600; epTime=toc(tEp); %#ok<AGROW>
+        if elapsed>=opts.maxHours, fprintf('  [%s] Time limit\n',ep.name); break; end
+        if curLR<=ext_lr_min*1.01, fprintf('  [%s] LR floor\n',ep.name); break; end
 
         if mod(epCnt,VAL_FREQ)==0||epCnt==1
             [vl,rv,ri]=computeVal(net,val_u,val_y,ns,DT,SKIP);
@@ -226,12 +252,15 @@ if ~opts.test && toc(tStart)/3600<opts.maxHours
                 if patCount>=10, curLR=max(curLR*0.5,ext_lr_min); patCount=0;
                     fprintf('    LR->%.1e\n',curLR); end
             end
-            fprintf('  [Ext ep%4d] Train:%.4f|Val:%.4f|FP:V=%.3f iL=%.3f|win=%dms|LR=%.1e|%.2fh|noImp=%d/30%s\n',...
-                epCnt,trainHist(end),vl,fpv,fpi,winMs,curLR,elapsed,noImpExt,imp);
-            if noImpExt>=30, fprintf('  [Ext] Plateau\n'); break; end
+            fprintf('  [%s ep%4d] Train:%.4f|Val:%.4f|FP:V=%.3f iL=%.3f|LR=%.1e|%.1fs|%.2fh|noImp=%d/60%s\n',...
+                ep.name,epCnt,trainHist(end),vl,fpv,fpi,curLR,epTime,elapsed,noImpExt,imp);
+            if noImpExt>=60, fprintf('  [%s] Plateau\n',ep.name); break; end
+        else
+            if mod(epCnt,5)==0, fprintf('  [%s ep%4d] Train:%.4f|%.1fs\n',ep.name,epCnt,trainHist(end),epTime); end
         end
         if toc(tLastCp)>CP_MIN*60, saveCp(CP_DIR,'latest.mat',net,bestNet,bestVal,trainHist,valHist,totalEpochs,ns); tLastCp=tic; end
     end
+    saveCp(CP_DIR,sprintf('after_%s.mat',ep.name),net,bestNet,bestVal,trainHist,valHist,totalEpochs,ns);
 end
 
 %% ── Final ──────────────────────────────────────────────────────────────────

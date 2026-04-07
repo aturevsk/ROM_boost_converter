@@ -1065,21 +1065,22 @@ def build_report():
     )
 
     pdf.add_table(
-        ['Model', 'Vout RMSE', 'iL RMSE', 'Training Time'],
+        ['Model', 'Vout RMSE', 'iL RMSE', 'Training Time', 'Sim Speed'],
         [
-            ['PyTorch LPV seed 7', '0.019 V', '0.126 A', '7.1 h'],
-            ['MATLAB DLT LPV seed 7', '0.022 V', '0.081 A', '~19 h (still improving)'],
+            ['PyTorch LPV seed 7', '0.019 V', '0.126 A', '7.1 h', '57x'],
+            ['MATLAB DLT LPV seed 7', '0.019 V', '0.067 A', '~20 h', '53x'],
         ],
-        col_widths=[45, 30, 30, 45]
+        col_widths=[40, 25, 25, 30, 25]
     )
 
     pdf.key_insight(
-        'MATLAB DLT successfully replicates PyTorch accuracy with the LPV architecture: '
-        'Vout RMSE 0.022V (vs PyTorch 0.019V, within 15%%) and iL RMSE 0.077A (vs PyTorch '
-        '0.126A, 39%% better). The LPV structured form stabilizes gradients through the RK4 '
-        'chain, overcoming the autograd limitation that prevented the MLP architecture from '
-        'converging in MATLAB. Training takes longer (~19h vs 7h) due to MATLAB framework '
-        'overhead, but the accuracy is equivalent or better.'
+        'MATLAB DLT matches PyTorch Vout accuracy (0.019V) and EXCEEDS PyTorch on iL '
+        '(0.067A vs 0.126A, 47%% better). The LPV structured form dx/dt = A(x,u)*x + B(x,u)*u + c '
+        'stabilizes gradients through the RK4 chain, overcoming the autograd limitation that '
+        'prevented the MLP architecture from converging in MATLAB. Training takes longer (~20h '
+        'vs 7h) due to MATLAB framework overhead. Key optimization: disable dlaccelerate for '
+        'windows > 20ms (avoids 6-hour retrace spikes, gives consistent 2.5 min/epoch).\n\n'
+        'Simulink deployment: boost_rom_dlt_lpv_seed7.slx runs 53x faster than Simscape.'
     )
 
     pdf.subsection_title('DLT LPV Simulink Deployment')
