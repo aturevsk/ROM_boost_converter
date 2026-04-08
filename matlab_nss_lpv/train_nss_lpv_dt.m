@@ -1,4 +1,4 @@
-function train_nss_lpv(seed, opts)
+function train_nss_lpv_dt(seed, opts)
 % train_nss_lpv  Neural State Space with LPV architecture.
 %
 % Uses idNeuralStateSpace + nlssest with a custom LPV-structured dlnetwork:
@@ -37,11 +37,11 @@ NX = 2;
 H = 64;
 VAL_IDX = [5, 12, 14];
 
-CP_DIR = fullfile(thisDir, 'checkpoints', sprintf('run_%04d', seed));
+CP_DIR = fullfile(thisDir, 'checkpoints_dt', sprintf('run_%04d', seed));
 if ~isfolder(CP_DIR), mkdir(CP_DIR); end
 
 rng(seed);
-fprintf('=== NSS LPV Training — Seed %d ===\n', seed);
+fprintf('=== NSS LPV DT Training — Seed %d ===\n', seed);
 fprintf('Architecture: dx/dt = A(x,u)*x + B(x,u)*u + c(x,u)\n');
 fprintf('Trained with nlssest (no custom loss)\n\n');
 
@@ -197,29 +197,31 @@ end
 % For standard MLP NSS, output scaling is critical (tanh output ~[-1,1]
 % but dxdt ~O(1000)). For LPV, the bilinear structure handles the scaling
 % implicitly through the A*x multiplication.
-fprintf('  Output scaling: DISABLED (LPV handles scale via A*x structure)\n');
-
-if false  % DISABLED — causes NaN gradients with LPV
-    output_scale = ns.dxdt_std ./ ns.y_std;
-    fc_raw_w_idx = find(strcmp(stateNet.Learnables.Layer, 'fc_raw') & ...
-                        contains(stateNet.Learnables.Parameter, 'Weights'));
-    fc_raw_b_idx = find(strcmp(stateNet.Learnables.Layer, 'fc_raw') & ...
-                        contains(stateNet.Learnables.Parameter, 'Bias'));
+% DT mode: scale down fc_raw output layer to produce small initial values.
+% In DT, the network output represents dx = x[k+1] - x[k] which is ~O(Ts * dxdt)
+% = O(5e-6 * 1000) = O(0.005). Glorot init produces ~O(0.1) which is too large
+% when multiplied by x_n in A*x — causes instability and NaN gradients.
+fc_raw_w_idx = find(strcmp(stateNet.Learnables.Layer, 'fc_raw') & ...
+                    contains(stateNet.Learnables.Parameter, 'Weights'));
+fc_raw_b_idx = find(strcmp(stateNet.Learnables.Layer, 'fc_raw') & ...
+                    contains(stateNet.Learnables.Parameter, 'Bias'));
+if ~isempty(fc_raw_w_idx)
     W_raw = extractdata(stateNet.Learnables.Value{fc_raw_w_idx});
     b_raw = extractdata(stateNet.Learnables.Value{fc_raw_b_idx});
-    scale_per_row = [output_scale(1); output_scale(1); output_scale(2); output_scale(2); ...
-                     output_scale(1); output_scale(2); output_scale(1); output_scale(2)];
-    W_raw = W_raw .* scale_per_row;
-    b_raw = b_raw(:) .* scale_per_row;
-    stateNet.Learnables.Value{fc_raw_w_idx} = dlarray(single(W_raw));
-    stateNet.Learnables.Value{fc_raw_b_idx} = dlarray(single(b_raw));
+    dt_scale = 0.01;  % scale down to prevent NaN
+    stateNet.Learnables.Value{fc_raw_w_idx} = dlarray(single(W_raw * dt_scale));
+    stateNet.Learnables.Value{fc_raw_b_idx} = dlarray(single(b_raw(:) * dt_scale));
+    fprintf('  DT output scaling: fc_raw weights * %.3f\n', dt_scale);
+end
+
+if false  % original CT scaling — not used
     fprintf('  Output scaling applied: [%.1f, %.1f]\n', output_scale);
 end
 
 %% ── Create idNeuralStateSpace ──────────────────────────────────────────────
-nss = idNeuralStateSpace(NX, NumInputs=1, NumOutputs=NX, Ts=0);  % CT mode
+nss = idNeuralStateSpace(NX, NumInputs=1, NumOutputs=NX, Ts=5e-6);  % CT mode
 nss.StateNetwork = stateNet;
-fprintf('  idNeuralStateSpace created (CT, Ts=0)\n');
+fprintf('  idNeuralStateSpace created (DT, Ts=5e-6)\n');
 
 %% ── Training phases ────────────────────────────────────────────────────────
 if opts.test
@@ -248,21 +250,43 @@ for phIdx = 1:numel(phases)
         ph.name, ph.epochs, nChunks, CHUNK, ph.windowMs, ph.lr);
 
     epochsDone = 0;
+    currentLR = ph.lr;
     for ch = 1:nChunks
         epThisChunk = min(CHUNK, ph.epochs - epochsDone);
 
         trainOpts = nssTrainingOptions('adam');
         trainOpts.MaxEpochs = epThisChunk;
-        trainOpts.LearnRate = ph.lr;
+        trainOpts.LearnRate = currentLR;
         trainOpts.LearnRateSchedule = 'piecewise';
         trainOpts.LearnRateDropPeriod = ph.dropPeriod;
         trainOpts.LearnRateDropFactor = 0.5;
         trainOpts.WindowSize = winSamples;
         trainOpts.NumWindowFraction = eps;
         trainOpts.LossFcn = 'MeanSquaredError';
+        trainOpts.Lambda = 1e-4;  % L2 regularization to prevent weight explosion
 
         tChunk = tic;
-        nss = nlssest(trainDataMerged, nss, trainOpts);
+        try
+            nss = nlssest(trainDataMerged, nss, trainOpts);
+        catch ME
+            if contains(ME.message, 'NaN')
+                % NaN gradient — reduce LR, reload best, retry
+                currentLR = currentLR * 0.5;
+                fprintf('  [!] NaN gradient at ep %d. LR -> %.1e. Reloading best model.\n', ...
+                    epochsDone + epThisChunk, currentLR);
+                if isfile(fullfile(CP_DIR, 'best.mat'))
+                    cp = load(fullfile(CP_DIR, 'best.mat'));
+                    nss = cp.bestNSS;
+                end
+                if currentLR < 1e-6
+                    fprintf('  LR too low, stopping phase.\n');
+                    break;
+                end
+                continue;  % retry this chunk with lower LR
+            else
+                rethrow(ME);
+            end
+        end
         chunkTime = toc(tChunk);
         epochsDone = epochsDone + epThisChunk;
 

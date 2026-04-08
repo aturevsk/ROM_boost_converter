@@ -1102,6 +1102,61 @@ def build_report():
     )
 
     # ================================================================
+    # 5.8 NSS WITH LPV ARCHITECTURE
+    # ================================================================
+    pdf.add_page()
+    pdf.section_title('5.8 Neural State Space with LPV Architecture (nlssest)')
+
+    pdf.body(
+        'The LPV architecture was also tested with MATLAB Neural State Space (nlssest) to see '
+        'if the same structured network could improve NSS accuracy without requiring a custom '
+        'training loop. The LPV dlnetwork (with functionLayer and skip connections for '
+        'A*x + B*u + c) was assigned to idNeuralStateSpace.StateNetwork and trained with nlssest.'
+    )
+
+    pdf.subsection_title('Implementation Challenges')
+    pdf.body(
+        '1. functionLayer crash in batch mode: nlssest evaluates the functionLayer on worker '
+        'threads, causing MATLAB assertion "MCOS accessed on non-MVM thread". Works in '
+        'interactive mode. Workaround: chunked training (10 epochs per nlssest call).\n\n'
+        '2. NaN gradients: the LPV output layer produces A-matrix values that grow during '
+        'training until gradients explode. Fix: L2 regularization (Lambda=1e-4) + automatic '
+        'NaN recovery (halve LR, reload best model, retry).\n\n'
+        '3. Output scaling incompatibility: the dxdt_std/y_std scaling used for standard MLP NSS '
+        'causes NaN with LPV (A,B,c matrix entries should be O(1), not O(1000)). Fix: disable '
+        'output scaling for LPV architecture.\n\n'
+        '4. Discrete-time mode (Ts=5e-6) used instead of continuous-time to avoid dlode45 '
+        'overhead (~60x faster per epoch than CT mode).'
+    )
+
+    pdf.subsection_title('Results')
+    pdf.add_table(
+        ['Model', 'FP Vout', 'FP iL', 'Val Loss', 'Training', 'Epoch Time'],
+        [
+            ['NSS LPV (DT, this attempt)', '0.378 V', '1.696 A', '0.168', '9.6 h', '52 s'],
+            ['Previous best NSS (expert)', '~0.47 V', '~5.3 A', '0.130', '~40 h', '~280 s'],
+            ['MATLAB DLT LPV', '0.019 V', '0.067 A', '0.0002', '~20 h', '0.7-2.5 s'],
+            ['PyTorch LPV', '0.019 V', '0.126 A', '0.0009', '7 h', '2.3-14 s'],
+        ],
+        col_widths=[42, 22, 22, 22, 22, 22]
+    )
+
+    pdf.body(
+        'NSS LPV improved iL accuracy 3x over previous NSS (1.70A vs 5.3A) but was limited '
+        'by nlssest constraints: no custom loss function, 60x slower per epoch than DLT custom '
+        'loop, and NaN instability requiring conservative regularization.\n\n'
+        'Script: matlab_nss_lpv/train_nss_lpv_dt.m'
+    )
+
+    pdf.key_insight(
+        'The LPV architecture helps NSS but cannot overcome nlssest fundamental limitations: '
+        'standard MSE loss (no ripple-aware filtering), dlode45/DT solver overhead, and no '
+        'gradient control. The same architecture achieves 20x better accuracy (0.019V vs 0.378V) '
+        'when trained with a custom DLT loop. For Neural ODE ROMs, the custom training loop '
+        'is essential -- the network architecture alone is not sufficient.'
+    )
+
+    # ================================================================
     # 7. DEPLOYMENT
     # ================================================================
     pdf.add_page()
@@ -1279,6 +1334,17 @@ def build_report():
             ['train_lpv_rk4.m', 'LPV RK4: replicates PyTorch seed 7 with all 6 fixes (Vout 0.022V)'],
             ['resume_training.m', 'Resume from checkpoint: Phase 2/3/4 continuation'],
             ['resume_lpv_noaccl.m', 'Resume LPV without dlaccelerate (for 40ms+ windows)'],
+        ],
+        col_widths=[60, 120]
+    )
+
+    pdf.section_title('matlab_nss_lpv/ (NSS with LPV architecture)')
+    pdf.add_table(
+        ['File', 'Description'],
+        [
+            ['train_nss_lpv.m', 'NSS LPV CT mode (slow, ~4 min/ep)'],
+            ['train_nss_lpv_dt.m', 'NSS LPV DT mode with NaN recovery (Vout 0.378V, 52s/ep)'],
+            ['nlssest_functionLayer_crash.m', 'Minimal repro: functionLayer crash in batch mode'],
         ],
         col_widths=[60, 120]
     )
